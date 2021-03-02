@@ -1,0 +1,13 @@
+version: '3'
+
+services:
+  stackdog:
+    container_name: backend
+    build:
+      context: .
+      dockerfile: docker/local/Dockerfile
+#    entrypoint: [ 'bash', '-c', 'sleep infinity' ]
+#    restart: always
+    ports:
+    - "5000:5000"
+    env_file: .env
