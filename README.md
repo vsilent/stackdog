@@ -1,25 +1,28 @@
-# stackdog
-Docker Container Management with Rust
-
 [![Crates.io](https://img.shields.io/crates/v/stackdog.svg)](https://crates.io/crates/stackdog)
 [![Docs.rs](https://docs.rs/stackdog/badge.svg)](https://docs.rs/stackdog)
-[![CI](https://github.com/vsilent/stackdog/workflows/Continuous%20Integration/badge.svg)](https://github.com/vsilent/stackdog/actions)
 [![Coverage Status](https://coveralls.io/repos/github/vsilent/stackdog/badge.svg?branch=master)](https://coveralls.io/github/vsilent/stackdog?branch=master)
+[![Build Status](https://travis-ci.com/trydirect/stackdog.svg?branch=master)](https://travis-ci.com/trydirect/stackdog)
+![Docker Stars](https://img.shields.io/docker/stars/trydirect/stackdog.svg)
+![Docker Pulls](https://img.shields.io/docker/pulls/trydirect/stackdog.svg)
+![Docker Automated](https://img.shields.io/docker/cloud/automated/trydirect/stackdog.svg)
+![Docker Build](https://img.shields.io/docker/cloud/build/trydirect/stackdog.svg)
+[![Gitter chat](https://badges.gitter.im/stackdog/community.png)](https://gitter.im/stackdog/community)
 
-## Development environment
+
+This is a server management tool written in Rust that allows users to manage containerized applications.
+
+
+This project is at early stage of development, see development [ROADMAP.md]
+
+[Request a feature](https://github.com/vsilent/stackdog/issues/new) 
+
+
+## Setup development environment
 
 ```
 cp .env.sample .env
 docker-compose up
 ```
-
-## License
-
-Licensed under either of
-
-* MIT license
-  ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-
 
 ## Contribution
 
@@ -28,3 +31,6 @@ for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+[MIT](LICENSE-MIT)
