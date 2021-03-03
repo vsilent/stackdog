@@ -14,9 +14,10 @@
 <p align="center">
 <img src="https://user-images.githubusercontent.com/42473/109795596-c7a14f00-7c1f-11eb-8358-583d4008f42d.jpg">
 </p>
-<p align="center">
-Server management tool written in Rust for fast and secure management of containerized applications
-</p>
+
+
+**Server management tool written in Rust for fast and secure management of containerized applications**
+
 
 
 
