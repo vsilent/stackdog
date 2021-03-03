@@ -9,12 +9,22 @@
 [![Gitter chat](https://badges.gitter.im/stackdog/community.png)](https://gitter.im/stackdog/community)
 
 
-This is a server management tool written in Rust that allows users to manage containerized applications.
+<p></p><p></p><p></p>
+
+<p align="center">
+<img src="https://user-images.githubusercontent.com/42473/109795596-c7a14f00-7c1f-11eb-8358-583d4008f42d.jpg">
+</p>
+<p align="center">
+Server management tool written in Rust for fast and secure management of containerized applications
+</p>
 
 
-This project is at early stage of development, see development [ROADMAP.md]
+
+This project is at early stage of development, see development [ROADMAP.md](ROADMAP.md)
+
 
 [Request a feature](https://github.com/vsilent/stackdog/issues/new) 
+
 
 
 ## Setup development environment
@@ -23,6 +33,8 @@ This project is at early stage of development, see development [ROADMAP.md]
 cp .env.sample .env
 docker-compose up
 ```
+
+
 
 ## Contribution
 
