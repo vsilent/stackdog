@@ -2,7 +2,6 @@ name: Githubflow
 
 on:
   push:
-    # Publish `master` as Docker `latest` image.
     branches:
       - master
 
