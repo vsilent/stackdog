@@ -1,11 +1,9 @@
 [![Crates.io](https://img.shields.io/crates/v/stackdog.svg)](https://crates.io/crates/stackdog)
 [![Docs.rs](https://docs.rs/stackdog/badge.svg)](https://docs.rs/stackdog)
 [![Coverage Status](https://coveralls.io/repos/github/vsilent/stackdog/badge.svg?branch=master)](https://coveralls.io/github/vsilent/stackdog?branch=master)
-[![Build Status](https://travis-ci.com/trydirect/stackdog.svg?branch=master)](https://travis-ci.com/trydirect/stackdog)
+[![Build Status](https://travis-ci.com/vsilent/stackdog.svg?branch=master)](https://travis-ci.com/trydirect/stackdog)
 ![Docker Stars](https://img.shields.io/docker/stars/trydirect/stackdog.svg)
 ![Docker Pulls](https://img.shields.io/docker/pulls/trydirect/stackdog.svg)
-![Docker Automated](https://img.shields.io/docker/cloud/automated/trydirect/stackdog.svg)
-![Docker Build](https://img.shields.io/docker/cloud/build/trydirect/stackdog.svg)
 [![Gitter chat](https://badges.gitter.im/stackdog/community.png)](https://gitter.im/stackdog/community)
 
 
@@ -17,7 +15,6 @@
 
 
 **Server management tool written in Rust for fast and secure management of containerized applications**
-
 
 
 
@@ -44,3 +41,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 [MIT](LICENSE-MIT)
+
+
+## Inspired by 
+
+- [Portainer](https://github.com/portainer/portainer) - A lightweight management UI for managing your Docker hosts or Docker Swarm clusters by [@portainer](https://github.com/portainer)
+- [Seagull](https://github.com/tobegit3hub/seagull) - Friendly Web UI to monitor docker daemon. by [@tobegit3hub](https://github.com/tobegit3hub)
+- [Swarmpit](https://github.com/swarmpit/swarmpit) - Swarmpit provides simple and easy to use interface for your Docker Swarm cluster. You can manage your stacks, services, secrets, volumes, networks etc.
+- [Swirl](https://github.com/cuigh/swirl) - Swirl is a web management tool for Docker, focused on swarm cluster By [@cuigh](https://github.com/cuigh/)
+- [Yacht](https://github.com/SelfhostedPro/Yacht) :construction: - A Web UI for docker that focuses on templates and ease of use in order to make deployments as easy as possible. By [@SelfhostedPro](https://github.com/SelfhostedPro)
