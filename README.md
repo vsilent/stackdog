@@ -17,14 +17,15 @@
 **Server management tool written in Rust for fast and secure management of containerized applications**
 
 
+<p></p><p></p>
 
 ## Table of contents
 - [Quick start](#quick-start)
 - [Request a feature](https://github.com/vsilent/stackdog/issues/new) 
 - [Documentation](#documentation)
 - [Contributing](#contributing)
-- [Community](#community)
 - [Versioning](#versioning)
+- [Community](#community)
 - [Creators](#creators)
 - [License](#license)
 
@@ -45,42 +46,43 @@ Stackdogs's documentation, included into this repo, is built with Jekyll and
 publicly hosted on GitHub Pages at https://stackdog.io 
 
 ### Contributing
-
 See [CONTRIBUTING.md](CONTRIBUTING.md).
-
 
 ### Versioning
 Stackdog is maintained under the [the Semantic Versioning guidelines](https://semver.org/).
 
 ## Community
-
 Get updates on Bootstrap's development and chat with the project maintainers and community members.
 
-- Follow [@stackdog1 on Twitter](https://twitter.com/stackdog1).
-- Join [the official Gitter room](https://gitter.im/stackdog/community).
+- Follow [@stackdog1 on Twitter](https://twitter.com/stackdog1)
+- Join [the official Gitter room](https://gitter.im/stackdog/community)
 
 ### Creators
 **Vasili Pascal**
 - <https://twitter.com/VasiliiPascal>
 - <https://github.com/vsilent>
 
+**Evgeny Duzhakov**
+- <https://github.com/diaevd>
+- <https://twitter.com/diaevd>
+
+**Nikolay Yasinskiy**
+- <https://github.com/nydevel>
+- <https://twitter.com/nydevel>
 
 ### Sponsors
+Support this project by becoming a sponsor. 
 
-Support this project by becoming a sponsor. Your logo will show up in this README with a link to your website. 
+Your logo will show up in this README with a link to your website. 
 
 [Become a sponsor!](https://opencollective.com/stackdog#sponsor)
-
 
 ### Contributors
 This project exists thanks to all the people who contribute.
 
 ### Backers
-
 Thank you to all our backers! 🙏 [Become a backer](https://opencollective.com/stackdog#backer)
-
 <a href="https://opencollective.com/stackdog#backers" target="_blank"><img src="https://opencollective.com/stackdog/backers.svg?width=890" /></a>
-
 
 ### Inspired by 
 
