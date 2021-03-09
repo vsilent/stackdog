@@ -114,3 +114,4 @@ jobs:
           repository: trydirect/stackdog
           add_git_labels: true
           tag_with_ref: true
+          no-cache: true
