@@ -90,11 +90,11 @@ export default (_env: any, options: Options): webpack.Configuration => {
             path: isEnvProduction ? path.resolve(__dirname, "dist") : undefined,
             pathinfo: isEnvDevelopment,
             filename: isEnvProduction
-                ? "static/js/[name].[contenthash:8].js"
-                : "static/js/bundle.[contenthash:8].js",
+                ? "js/[name].[contenthash:8].js"
+                : "js/bundle.[contenthash:8].js",
             chunkFilename: isEnvProduction
-                ? "static/js/[name].[contenthash:8].chunk.js"
-                : "static/js/[name].chunk.js",
+                ? "js/[name].[contenthash:8].chunk.js"
+                : "js/[name].chunk.js",
             publicPath: publicUrl,
         },
         devtool: isEnvProduction
