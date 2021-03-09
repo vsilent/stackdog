@@ -56,10 +56,31 @@ jobs:
           command: build
           args: --release
 
-      - name: Copy neccessary files and zip
+      - name: Set up Node.js
+        uses: actions/setup-node@v1
+        with:
+          node-version: 14
+
+      - name: npm install, make test-coverage
+        working-directory: ./web
+        run: |
+            npm install
+            make test-coverage
+
+      - name: Coveralls
+        uses: coverallsapp/github-action@master
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        working-directory: ./web
+        run: npm run build
+
+      - name: Copy app files and zip
         run: |
           mkdir app
           cp target/release/stackdog app/stackdog
+          cp web/dist app/stackdog
           cp docker/prod/Dockerfile app/Dockerfile
           cd app
           touch .env
