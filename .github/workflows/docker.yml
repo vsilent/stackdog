@@ -61,20 +61,17 @@ jobs:
         with:
           node-version: 14
 
-      - name: npm install, make test-coverage
+      - name: npm install
         working-directory: ./web
-        run: |
-            npm install
-            make test-coverage
-
-      - name: Coveralls
-        uses: coverallsapp/github-action@master
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+        run: npm install
 
       - name: Build
         working-directory: ./web
         run: npm run build
+
+#      - name: Test
+#        working-directory: ./web
+#        run: npm test
 
       - name: Copy app files and zip
         run: |
