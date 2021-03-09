@@ -67,7 +67,7 @@ jobs:
           cd ..
 
       - name: Upload app archive for Docker job
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2.2.2
         with:
           name: artifact-linux-docker
           path: app.tar.gz
