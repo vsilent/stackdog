@@ -57,54 +57,51 @@ jobs:
           command: build
           args: --release
 
-      - name: Build frontend
+      #      Build with Docker
+      #      - name: Build frontend
+      #        working-directory: ./web
+      #        run: docker build . --file Dockerfile --tag web
+      #
+      #      - name: Compile js
+      #        working-directory: ./web
+      #        run: docker run --rm -v $GITHUB_WORKSPACE/dist:/stackdog/dist web sh -c "npm run build"
+      #
+      #      - name: Display structure of dist
+      #        run: ls -R $GITHUB_WORKSPACE/dist
+
+      - name: npm install, build, and test
         working-directory: ./web
-        run: docker build . --file Dockerfile --tag web
+        run: |
+          npm install
+          npm run build
+      #   npm test
 
-      - name: Compile js
-        working-directory: ./web
-        run: docker run --rm -v $GITHUB_WORKSPACE/dist:/stackgog/dist web sh -c "npm run build"
+      - name: Archive production artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: dist-without-markdown
+          path: |
+            web/dist
+            !web/dist/**/*.md
 
-      - name: Display structure of dist
-        run: ls -R $GITHUB_WORKSPACE/dist
-#      - name: npm install
-#        working-directory: ./web
-#        run: npm install
-#
-#      - name: Build
-#        working-directory: ./web
-#        run: npm run build
-
-#      - name: Test
-#        working-directory: ./web
-#        run: npm test
-
-#      - name: Get npm cache directory
-#        working-directory: ./web
-#        id: npm-cache-dir
-#        run: |
-#          echo "::set-output name=dir::$(npm config get cache)"
-#      - uses: actions/cache@v2
-#        id: npm-cache # use this to check for `cache-hit` ==> if: steps.npm-cache.outputs.cache-hit != 'true'
+#      - name: Archive code coverage results
+#        uses: actions/upload-artifact@v2
 #        with:
-#          path: ${{ steps.npm-cache-dir.outputs.dir }}
-#          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-#          restore-keys: |
-#            ${{ runner.os }}-node-
+#          name: code-coverage-report
+#          path: output/test/code-coverage.html
+      - name: Display structure of downloaded files
+        run: ls -R web/dist
 
       - name: Copy app files and zip
         run: |
           mkdir -p app/stackdog/dist
           cp target/release/stackdog app/stackdog
-          cp -a $GITHUB_WORKSPACE/dist/. app/stackdog
+          cp -a web/dist/. app/stackdog
           cp docker/prod/Dockerfile app/Dockerfile
           cd app
           touch .env
           tar -czvf ../app.tar.gz .
           cd ..
-
-      - name: Display structure of dist
-        run: ls -R app/stackdog/dist
 
       - name: Upload app archive for Docker job
         uses: actions/upload-artifact@v2.2.2
@@ -127,9 +124,6 @@ jobs:
 
       - name: Display structure of downloaded files
         run: ls -R
-
-      - name: Display structure of dist
-        run: ls -R dist
 
       - name: Docker build and publish
         uses: docker/build-push-action@v1
