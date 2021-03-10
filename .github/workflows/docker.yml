@@ -63,7 +63,7 @@ jobs:
 
       - name: Compile js
         working-directory: ./web
-        run: docker exec --rm -v ./dist:/stackgog/dist web
+        run: docker run --rm -v $GITHUB_WORKSPACE/dist:/stackgog/dist stackdog sh -c "npm run build"
 
 #      - name: npm install
 #        working-directory: ./web
