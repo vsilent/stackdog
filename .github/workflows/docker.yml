@@ -57,24 +57,24 @@ jobs:
           command: build
           args: --release
 
-#      Build with Docker
-#      - name: Build frontend
-#        working-directory: ./web
-#        run: docker build . --file Dockerfile --tag web
-#
-#      - name: Compile js
-#        working-directory: ./web
-#        run: docker run --rm -v $GITHUB_WORKSPACE/dist:/stackdog/dist web sh -c "npm run build"
-#
-#      - name: Display structure of dist
-#        run: ls -R $GITHUB_WORKSPACE/dist
+      #      Build with Docker
+      #      - name: Build frontend
+      #        working-directory: ./web
+      #        run: docker build . --file Dockerfile --tag web
+      #
+      #      - name: Compile js
+      #        working-directory: ./web
+      #        run: docker run --rm -v $GITHUB_WORKSPACE/dist:/stackdog/dist web sh -c "npm run build"
+      #
+      #      - name: Display structure of dist
+      #        run: ls -R $GITHUB_WORKSPACE/dist
 
       - name: npm install, build, and test
         working-directory: ./web
         run: |
           npm install
           npm run build --if-present
-#          npm test
+      #   npm test
 
       - name: Archive production artifacts
         working-directory: ./web
@@ -85,11 +85,11 @@ jobs:
             dist
             !dist/**/*.md
 
-#      - name: Archive code coverage results
-#        uses: actions/upload-artifact@v2
-#        with:
-#          name: code-coverage-report
-#          path: output/test/code-coverage.html
+      #      - name: Archive code coverage results
+      #        uses: actions/upload-artifact@v2
+      #        with:
+      #          name: code-coverage-report
+      #          path: output/test/code-coverage.html
 
       - name: Copy app files and zip
         run: |
