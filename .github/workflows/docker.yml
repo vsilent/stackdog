@@ -89,11 +89,14 @@ jobs:
 #        with:
 #          name: code-coverage-report
 #          path: output/test/code-coverage.html
+      - name: Display structure of downloaded files
+        run: ls -R web/dist
+
       - name: Copy app files and zip
         run: |
           mkdir -p app/stackdog/dist
           cp target/release/stackdog app/stackdog
-          cp web/dist/. app/stackdog
+          cp -a web/dist/. app/stackdog
           cp docker/prod/Dockerfile app/Dockerfile
           cd app
           touch .env
