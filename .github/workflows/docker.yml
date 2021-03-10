@@ -65,6 +65,8 @@ jobs:
         working-directory: ./web
         run: docker run --rm -v $GITHUB_WORKSPACE/dist:/stackgog/dist web sh -c "npm run build"
 
+      - name: Display structure of dist
+        run: ls -R $GITHUB_WORKSPACE/dist
 #      - name: npm install
 #        working-directory: ./web
 #        run: npm install
@@ -101,6 +103,9 @@ jobs:
           tar -czvf ../app.tar.gz .
           cd ..
 
+      - name: Display structure of dist
+        run: ls -R app/stackdog/dist
+
       - name: Upload app archive for Docker job
         uses: actions/upload-artifact@v2.2.2
         with:
@@ -122,6 +127,9 @@ jobs:
 
       - name: Display structure of downloaded files
         run: ls -R
+
+      - name: Display structure of dist
+        run: ls -R dist
 
       - name: Docker build and publish
         uses: docker/build-push-action@v1
