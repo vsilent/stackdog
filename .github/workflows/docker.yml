@@ -4,13 +4,14 @@ on:
   push:
     branches:
       - master
+      - testing
   pull_request:
     branches:
       - master
 
 jobs:
   cicd-linux-docker:
-    name: CICD Linux for Docker
+    name: Cargo and npm build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
@@ -56,28 +57,44 @@ jobs:
           command: build
           args: --release
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v1
-        with:
-          node-version: 14
-
-      - name: npm install
+      - name: Build frontend
         working-directory: ./web
-        run: npm install
+        run: docker build . --file Dockerfile --tag web
 
-      - name: Build
+      - name: Compile js
         working-directory: ./web
-        run: npm run build
+        run: docker run --rm -v $GITHUB_WORKSPACE/dist:/stackgog/dist web sh -c "npm run build"
+
+#      - name: npm install
+#        working-directory: ./web
+#        run: npm install
+#
+#      - name: Build
+#        working-directory: ./web
+#        run: npm run build
 
 #      - name: Test
 #        working-directory: ./web
 #        run: npm test
 
+#      - name: Get npm cache directory
+#        working-directory: ./web
+#        id: npm-cache-dir
+#        run: |
+#          echo "::set-output name=dir::$(npm config get cache)"
+#      - uses: actions/cache@v2
+#        id: npm-cache # use this to check for `cache-hit` ==> if: steps.npm-cache.outputs.cache-hit != 'true'
+#        with:
+#          path: ${{ steps.npm-cache-dir.outputs.dir }}
+#          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+#          restore-keys: |
+#            ${{ runner.os }}-node-
+
       - name: Copy app files and zip
         run: |
-          mkdir app
+          mkdir -p app/stackdog/dist
           cp target/release/stackdog app/stackdog
-          cp web/dist app/stackdog
+          cp -a $GITHUB_WORKSPACE/dist/. app/stackdog
           cp docker/prod/Dockerfile app/Dockerfile
           cd app
           touch .env
@@ -112,4 +129,3 @@ jobs:
           add_git_labels: true
           tag_with_ref: true
           #no-cache: true
-          context:  ./app

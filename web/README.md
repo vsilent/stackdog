@@ -4,13 +4,15 @@
 
 We use Webpack dev server with hot reload, so you can serve it locally and see all changes immediately.
 
+`cd ./web`
 `npm install`
 `npm run start`
 
 OR
 
-`docker build -t stackdog -f Dockerfile .`
-`docker run stackdog`
+`cd ./web`
+`docker build . -t stackdog`
+`docker run -p8080:8080 stackdog`
 
 ## Production build
 
