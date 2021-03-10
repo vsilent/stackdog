@@ -92,7 +92,7 @@ jobs:
 
       - name: Copy app files and zip
         run: |
-          mkdir app/stackdog/dist
+          mkdir -p app/stackdog/dist
           cp target/release/stackdog app/stackdog
           cp -a $GITHUB_WORKSPACE/dist/. app/stackdog
           cp docker/prod/Dockerfile app/Dockerfile
