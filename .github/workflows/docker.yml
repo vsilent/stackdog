@@ -73,24 +73,23 @@ jobs:
         working-directory: ./web
         run: |
           npm install
-          npm run build --if-present
+          npm run build
       #   npm test
 
       - name: Archive production artifacts
-        working-directory: ./web
         uses: actions/upload-artifact@v2
         with:
           name: dist-without-markdown
           path: |
             dist
             !dist/**/*.md
+        working-directory: ./web
 
-      #      - name: Archive code coverage results
-      #        uses: actions/upload-artifact@v2
-      #        with:
-      #          name: code-coverage-report
-      #          path: output/test/code-coverage.html
-
+#      - name: Archive code coverage results
+#        uses: actions/upload-artifact@v2
+#        with:
+#          name: code-coverage-report
+#          path: output/test/code-coverage.html
       - name: Copy app files and zip
         run: |
           mkdir -p app/stackdog/dist
