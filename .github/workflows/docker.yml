@@ -81,9 +81,8 @@ jobs:
         with:
           name: dist-without-markdown
           path: |
-            dist
-            !dist/**/*.md
-        working-directory: ./web
+            web/dist
+            !web/dist/**/*.md
 
 #      - name: Archive code coverage results
 #        uses: actions/upload-artifact@v2
@@ -94,7 +93,7 @@ jobs:
         run: |
           mkdir -p app/stackdog/dist
           cp target/release/stackdog app/stackdog
-          cp -a $GITHUB_WORKSPACE/dist/. app/stackdog
+          cp web/dist/. app/stackdog
           cp docker/prod/Dockerfile app/Dockerfile
           cd app
           touch .env
