@@ -94,7 +94,7 @@ jobs:
         run: |
           mkdir app
           cp target/release/stackdog app/stackdog
-          cp ./dist app/stackdog
+          cp $GITHUB_WORKSPACE/dist app/stackdog
           cp docker/prod/Dockerfile app/Dockerfile
           cd app
           touch .env
