@@ -25,7 +25,7 @@ jobs:
           override: true
 
       - name: Cache cargo registry
-        uses: actions/cache@v1
+        uses: actions/cache@v2.1.4
         with:
           path: ~/.cargo/registry
           key: docker-registry-${{ hashFiles('**/Cargo.lock') }}
@@ -34,7 +34,7 @@ jobs:
             docker-
 
       - name: Cache cargo index
-        uses: actions/cache@v1
+        uses: actions/cache@v2.1.4
         with:
           path: ~/.cargo/git
           key: docker-index-${{ hashFiles('**/Cargo.lock') }}
@@ -43,7 +43,7 @@ jobs:
             docker-
 
       - name: Cache cargo build
-        uses: actions/cache@v1
+        uses: actions/cache@v2.1.4
         with:
           path: target
           key: docker-build-${{ hashFiles('**/Cargo.lock') }}
@@ -104,7 +104,7 @@ jobs:
           cd ..
 
       - name: Upload app archive for Docker job
-        uses: actions/upload-artifact@v1
+        uses: actions/upload-artifact@v2.2.2
         with:
           name: artifact-linux-docker
           path: app.tar.gz
