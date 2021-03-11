@@ -4,7 +4,11 @@ Stackdog - is a server management tool written in Rust that allows users to mana
 
 #### Status 
 
-We have just started ! Stay tuned !
+<div markdown="span" class="alert alert-warning" role="alert"><i class="fa fa-warning-circle"></i>
+
+:warning: We have just started our development ! Stay tuned !
+
+</div>
 
 ### Quickstart
 
