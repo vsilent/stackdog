@@ -1,5 +1,4 @@
 use crate::{
-    constants,
     error::ServiceError,
     config::db::Pool,
 };

@@ -2,7 +2,6 @@ use crate::{
     config::db::Pool,
     constants,
     models::{
-        user::{LoginDTO, UserDTO},
         response::ResponseBody,
     },
     services::docker_service,

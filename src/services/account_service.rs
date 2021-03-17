@@ -2,7 +2,7 @@ use crate::{
     config::db::Pool,
     constants,
     error::ServiceError,
-    models::user::{User, UserDTO, LoginDTO},
+    models::user::{User, LoginDTO},
     models::user_token::UserToken,
     utils::token_utils,
 };
@@ -13,6 +13,7 @@ use actix_web::{
     },
     web,
 };
+use crate::models::user::UserDTO;
 
 #[derive(Serialize, Deserialize)]
 pub struct TokenBodyResponse {

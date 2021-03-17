@@ -2,7 +2,7 @@ use crate::{
     config::db::Pool,
     constants,
     models::{
-        user::{LoginDTO, UserDTO},
+        user::{LoginDTO},
         response::ResponseBody,
     },
     services::account_service,
@@ -56,17 +56,10 @@ mod tests {
             .configure(crate::config::app::config_services)
         ).await;
 
-        test::TestRequest::post()
-            .uri("/api/auth/signup")
-            .set(header::ContentType::json())
-            .set_payload(r#"{"username":"admin","email":"admin@gmail.com","password":"123456"}"#.as_bytes())
-            .send_request(&mut app)
-            .await;
-
         let resp = test::TestRequest::post()
             .uri("/api/auth/login")
             .set(header::ContentType::json())
-            .set_payload(r#"{"username_or_email":"admin","password":"123456"}"#.as_bytes())
+            .set_payload(r#"{"username_or_email":"admin","password":"password"}"#.as_bytes())
             .send_request(&mut app)
             .await;
 
@@ -92,17 +85,10 @@ mod tests {
             .configure(crate::config::app::config_services)
         ).await;
 
-        test::TestRequest::post()
-            .uri("/api/auth/signup")
-            .set(header::ContentType::json())
-            .set_payload(r#"{"username":"admin","email":"admin@gmail.com","password":"123456"}"#.as_bytes())
-            .send_request(&mut app)
-            .await;
-
         let resp = test::TestRequest::post()
             .uri("/api/auth/login")
             .set(header::ContentType::json())
-            .set_payload(r#"{"username_or_email":"admin@gmail.com","password":"123456"}"#.as_bytes())
+            .set_payload(r#"{"username_or_email":"admin@gmail.com","password":"password"}"#.as_bytes())
             .send_request(&mut app)
             .await;
 
@@ -127,13 +113,6 @@ mod tests {
             })
             .configure(crate::config::app::config_services)
         ).await;
-
-        test::TestRequest::post()
-            .uri("/api/auth/signup")
-            .set(header::ContentType::json())
-            .set_payload(r#"{"username":"admin","email":"admin@gmail.com","password":"123456"}"#.as_bytes())
-            .send_request(&mut app)
-            .await;
 
         let resp = test::TestRequest::post()
             .uri("/api/auth/login")
@@ -164,13 +143,6 @@ mod tests {
             .configure(crate::config::app::config_services)
         ).await;
 
-        test::TestRequest::post()
-            .uri("/api/auth/signup")
-            .set(header::ContentType::json())
-            .set_payload(r#"{"username":"admin","email":"admin@gmail.com","password":"123456"}"#.as_bytes())
-            .send_request(&mut app)
-            .await;
-
         let resp = test::TestRequest::post()
             .uri("/api/auth/login")
             .set(header::ContentType::json())
@@ -200,17 +172,11 @@ mod tests {
             .configure(crate::config::app::config_services)
         ).await;
 
-        test::TestRequest::post()
-            .uri("/api/auth/signup")
-            .set(header::ContentType::json())
-            .set_payload(r#"{"username":"admin","email":"admin@gmail.com","password":"password"}"#.as_bytes())
-            .send_request(&mut app)
-            .await;
 
         let resp = test::TestRequest::post()
             .uri("/api/auth/login")
             .set(header::ContentType::json())
-            .set_payload(r#"{"username_or_email":"abc","password":"123456"}"#.as_bytes())
+            .set_payload(r#"{"username_or_email":"abc","password":"password"}"#.as_bytes())
             .send_request(&mut app)
             .await;
 
@@ -236,17 +202,11 @@ mod tests {
             .configure(crate::config::app::config_services)
         ).await;
 
-        test::TestRequest::post()
-            .uri("/api/auth/signup")
-            .set(header::ContentType::json())
-            .set_payload(r#"{"username":"admin","email":"admin@gmail.com","password":"password"}"#.as_bytes())
-            .send_request(&mut app)
-            .await;
 
         let resp = test::TestRequest::post()
             .uri("/api/auth/login")
             .set(header::ContentType::json())
-            .set_payload(r#"{"username_or_email":"abc@gmail.com","password":"123456"}"#.as_bytes())
+            .set_payload(r#"{"username_or_email":"abc@gmail.com","password":"password"}"#.as_bytes())
             .send_request(&mut app)
             .await;
 

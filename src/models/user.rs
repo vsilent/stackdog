@@ -1,6 +1,6 @@
 use crate::{
-    config::db::Connection,
     constants,
+    config::db::Connection,
     models::{user_token::UserToken},
     schema::users::{self, dsl::*},
 };
@@ -22,6 +22,8 @@ pub struct User {
 #[derive(Insertable, Serialize, Deserialize)]
 #[table_name = "users"]
 pub struct UserDTO {
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime,
     pub username: String,
     pub email: String,
     pub password: String,
@@ -41,19 +43,6 @@ pub struct LoginInfoDTO {
 }
 
 impl User {
-    pub fn signup(user: UserDTO, conn: &Connection) -> Result<String, String> {
-        if Self::find_user_by_username(&user.username, conn).is_err() {
-            let hashed_pwd = hash(&user.password, DEFAULT_COST).unwrap();
-            let user = UserDTO {
-                password: hashed_pwd,
-                ..user
-            };
-            diesel::insert_into(users).values(&user).execute(conn);
-            Ok(constants::MESSAGE_SIGNUP_SUCCESS.to_string())
-        } else {
-            Err(format!("User '{}' is already registered", &user.username))
-        }
-    }
 
     pub fn login(login: LoginDTO, conn: &Connection) -> Option<LoginInfoDTO> {
         if let Ok(user_to_verify) = users
@@ -61,9 +50,21 @@ impl User {
             .or_filter(email.eq(&login.username_or_email))
             .get_result::<User>(conn)
         {
-            if user_to_verify.password.is_empty()
+            if !user_to_verify.password.is_empty()
                 && verify(&login.password, &user_to_verify.password).unwrap()
-             {
+            {
+                let login_session_str = User::generate_login_session();
+                if User::update_login_session_to_db(
+                    &user_to_verify.username,
+                    &login_session_str,
+                    conn,
+                ) {
+                    return Some(LoginInfoDTO {
+                        username: user_to_verify.username,
+                        login_session: login_session_str,
+                    });
+                }
+            } else {
                 return Some(LoginInfoDTO {
                     username: user_to_verify.username,
                     login_session: String::new(),
@@ -110,4 +111,15 @@ impl User {
             false
         }
     }
+
+    pub fn make_admin(user: UserDTO, conn: &Connection) {
+        let hashed_pwd = hash(&user.password, DEFAULT_COST).unwrap();
+        let user = UserDTO {
+            password: hashed_pwd,
+            ..user
+        };
+        let rs = diesel::insert_into(users).values(&user).execute(conn);
+        println!("Creating admin .. {:?}", rs);
+    }
+
 }
