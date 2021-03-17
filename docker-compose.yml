@@ -1,14 +1,19 @@
 version: '3'
-
+volumes:
+    db:
+      driver: local
 services:
   stackdog:
     container_name: backend
-    image: trydirect/stackdog:latest
-    #    build:
-    #      context: .
-    #      dockerfile: docker/local/Dockerfile
+#    image: trydirect/stackdog:latest
+    build:
+      context: .
+      dockerfile: docker/local/Dockerfile
     entrypoint: [ 'bash', '-c', 'sleep infinity' ]
 #    restart: always
     ports:
     - "5000:5000"
     env_file: .env
+    volumes:
+      - db:/app/db
+

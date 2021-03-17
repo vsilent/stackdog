@@ -21,7 +21,7 @@
 
 ## Table of contents
 - [Quick start](#quick-start)
-- [Request a feature](https://github.com/vsilent/stackdog/issues/new) 
+- [Request a feature](https://github.com/vsilent/stackdog/issues/new)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
 - [Versioning](#versioning)
@@ -38,12 +38,22 @@ This project is at early stage of development, see development [ROADMAP.md](ROAD
 
 ```
 cp .env.sample .env
+head -c16 /dev/urandom > src/secret.key
 docker-compose up
 ```
 
+### Setup diesel cli for sqlite, run migrations
+```aidl
+
+cargo install diesel_cli --no-default-features --features sqlite
+diesel setup
+diesel migration run
+
+```
+
 ### Documentation
-Stackdogs's documentation, included into this repo, is built with Jekyll and 
-publicly hosted on GitHub Pages at https://stackdog.io 
+Stackdogs's documentation, included into this repo, is built with Jekyll and
+publicly hosted on GitHub Pages at https://stackdog.io
 
 ### Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -71,9 +81,9 @@ Get updates on Bootstrap's development and chat with the project maintainers and
 - <https://twitter.com/nydevel>
 
 ### Sponsors
-Support this project by becoming a sponsor. 
+Support this project by becoming a sponsor.
 
-Your logo will show up in this README with a link to your website. 
+Your logo will show up in this README with a link to your website.
 
 [Become a sponsor!](https://opencollective.com/stackdog#sponsor)
 
@@ -84,7 +94,7 @@ This project exists thanks to all the people who contribute.
 Thank you to all our backers! 🙏 [Become a backer](https://opencollective.com/stackdog#backer)
 <a href="https://opencollective.com/stackdog#backers" target="_blank"><img src="https://opencollective.com/stackdog/backers.svg?width=890" /></a>
 
-### Inspired by 
+### Inspired by
 
 - [Portainer](https://github.com/portainer/portainer) - A lightweight management UI for managing your Docker hosts or Docker Swarm clusters by [@portainer](https://github.com/portainer)
 - [Seagull](https://github.com/tobegit3hub/seagull) - Friendly Web UI to monitor docker daemon. by [@tobegit3hub](https://github.com/tobegit3hub)
@@ -93,8 +103,8 @@ Thank you to all our backers! 🙏 [Become a backer](https://opencollective.com/
 - [Yacht](https://github.com/SelfhostedPro/Yacht) :construction: - A Web UI for docker that focuses on templates and ease of use in order to make deployments as easy as possible. By [@SelfhostedPro](https://github.com/SelfhostedPro)
 
 ### Why another container management tool ?
-- Written in Rust 
-- Better security 
+- Written in Rust
+- Better security
 - Better performance
 - Modular design
 

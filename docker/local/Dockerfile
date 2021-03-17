@@ -1,9 +1,9 @@
 # build stage
 FROM rust:slim as build
 
-# install libpq and create new empty binary project
+# install sqlite3 and create new empty binary project
 RUN apt-get update; \
-    apt-get install --no-install-recommends -y libpq-dev; \
+    apt-get install --no-install-recommends -y sqlite3 libsqlite3-dev; \
     rm -rf /var/lib/apt/lists/*; \
     USER=root cargo new --bin app
 WORKDIR /app
@@ -25,6 +25,7 @@ RUN touch .env;
 RUN rm -rf ./target/release/deps/stackdog*; \
     cargo build --release
 
+
 # deploy stage
 FROM debian:buster-slim
 
@@ -42,6 +43,8 @@ COPY --from=build /app/.env .
 
 # expose port
 EXPOSE 5000
+
+RUN /usr/bin/sqlite3 /app/db/stackdog.db
 
 # run the binary
 ENTRYPOINT ["/app/stackdog"]
