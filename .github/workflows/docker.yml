@@ -23,6 +23,7 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
+          components: rustfmt, clippy
 
       - name: Cache cargo registry
         uses: actions/cache@v2.1.4
@@ -66,14 +67,12 @@ jobs:
           command: test
 
       - name: Rustfmt
-        uses: actions-rs/cargo@v1
         run: rustup component add rustfmt
         with:
           command: fmt
           args: --all -- --check
 
       - name: Rustfmt
-        uses: actions-rs/cargo@v1
         run: rustup component add clippy
         with:
           command: clippy
