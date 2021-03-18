@@ -117,7 +117,7 @@ mod tests {
         let resp = test::TestRequest::post()
             .uri("/api/auth/login")
             .set(header::ContentType::json())
-            .set_payload(r#"{"username_or_email":"admin","password":"password"}"#.as_bytes())
+            .set_payload(r#"{"username_or_email":"admin","password":"incorrect"}"#.as_bytes())
             .send_request(&mut app)
             .await;
 
@@ -146,7 +146,7 @@ mod tests {
         let resp = test::TestRequest::post()
             .uri("/api/auth/login")
             .set(header::ContentType::json())
-            .set_payload(r#"{"username_or_email":"admin@gmail.com","password":"password"}"#.as_bytes())
+            .set_payload(r#"{"username_or_email":"admin@gmail.com","password":"incorrect"}"#.as_bytes())
             .send_request(&mut app)
             .await;
 
