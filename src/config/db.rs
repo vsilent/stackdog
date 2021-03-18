@@ -65,6 +65,7 @@ pub fn migrate_and_config_db(url: &str) -> Pool {
     };
     // For testing purpose
     User::make_admin(user, &pool.get().unwrap());
+
     // let conn  = &pool.get().unwrap();
     // let results = users
     //     .load::<User>(conn)

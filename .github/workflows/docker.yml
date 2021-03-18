@@ -23,6 +23,7 @@ jobs:
           toolchain: stable
           profile: minimal
           override: true
+          components: rustfmt, clippy
 
       - name: Cache cargo registry
         uses: actions/cache@v2.1.4
@@ -42,6 +43,10 @@ jobs:
             docker-index-
             docker-
 
+      - name: Generate Secret Key
+        run: |
+          head -c16 /dev/urandom > src/secret.key
+
       - name: Cache cargo build
         uses: actions/cache@v2.1.4
         with:
@@ -51,23 +56,34 @@ jobs:
             docker-build-
             docker-
 
+      - name: Cargo check
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+
+      - name: Cargo test
+        if: ${{ always() }}
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+
+      - name: Rustfmt
+        uses: actions-rs/toolchain@v1
+        with:
+          command: fmt
+          args: --all -- --check
+
+      - name: Rustfmt
+        uses: actions-rs/toolchain@v1
+        with:
+          command: clippy
+          args: -- -D warnings
+
       - name: Run cargo build
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: --release
-
-      #      Build with Docker
-      #      - name: Build frontend
-      #        working-directory: ./web
-      #        run: docker build . --file Dockerfile --tag web
-      #
-      #      - name: Compile js
-      #        working-directory: ./web
-      #        run: docker run --rm -v $GITHUB_WORKSPACE/dist:/stackdog/dist web sh -c "npm run build"
-      #
-      #      - name: Display structure of dist
-      #        run: ls -R $GITHUB_WORKSPACE/dist
 
       - name: npm install, build, and test
         working-directory: ./web
