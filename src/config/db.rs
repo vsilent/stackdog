@@ -7,6 +7,9 @@ use diesel::{
 };
 use crate::schema::users::columns::updated_at;
 use chrono::Utc;
+use diesel::connection::SimpleConnection;
+use crate::schema::users::dsl::users;
+use diesel::RunQueryDsl;
 
 embed_migrations!();
 
@@ -62,6 +65,15 @@ pub fn migrate_and_config_db(url: &str) -> Pool {
     };
     // For testing purpose
     User::make_admin(user, &pool.get().unwrap());
+    // let conn  = &pool.get().unwrap();
+    // let results = users
+    //     .load::<User>(conn)
+    //     .expect("Error loading users");
+    //
+    // println!("Displaying {} users", results.len());
+    // for user in results {
+    //     println!("{:?}", user.email);
+    // }
 
     pool
 }
