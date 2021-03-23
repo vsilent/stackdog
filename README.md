@@ -72,14 +72,6 @@ Get updates on Bootstrap's development and chat with the project maintainers and
 - <https://twitter.com/VasiliiPascal>
 - <https://github.com/vsilent>
 
-**Evgeny Duzhakov**
-- <https://github.com/diaevd>
-- <https://twitter.com/diaevd>
-
-**Nikolay Yasinskiy**
-- <https://github.com/nydevel>
-- <https://twitter.com/nydevel>
-
 ### Sponsors
 Support this project by becoming a sponsor.
 
