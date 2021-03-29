@@ -26,7 +26,7 @@ futures = "0.3.5"
 failure = "0.1.8"
 derive_more = "0.99.10"
 jsonwebtoken = "7.2.0"
-bcrypt = "0.8.2"
+bcrypt = "0.9.0"
 actix-tls = "2.0.0"
 awc = { version = "2.0.0", default-features = false }
 open-ssl = { package = "openssl", version = "0.10", optional = true }
