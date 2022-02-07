@@ -11,6 +11,8 @@ WORKDIR /app
 # copy manifests
 COPY ./Cargo.toml ./Cargo.toml
 
+COPY ./migrations /app/migrations
+
 # build this project to cache dependencies
 RUN cargo build --release; \
     rm src/*.rs
@@ -34,7 +36,7 @@ WORKDIR /app
 
 # install libpq
 RUN apt-get update; \
-    apt-get install --no-install-recommends -y libpq-dev; \
+    apt-get install --no-install-recommends -y libpq-dev sqlite3 libsqlite3-dev; \
     rm -rf /var/lib/apt/lists/*
 
 # copy binary and configuration files
@@ -43,7 +45,7 @@ COPY --from=build /app/.env .
 
 # expose port
 EXPOSE 5000
-
+RUN mkdir /app/db
 RUN /usr/bin/sqlite3 /app/db/stackdog.db
 
 # run the binary

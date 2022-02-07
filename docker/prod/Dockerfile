@@ -13,7 +13,7 @@ RUN apt-get update; \
 # copy binary and configuration files
 COPY ./stackdog .
 COPY ./.env .
-
+COPY ./migrations .
 # expose port
 EXPOSE 5000
 

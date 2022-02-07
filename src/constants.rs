@@ -1,5 +1,4 @@
 // Messages
-pub const MESSAGE_OK: &str = "ok";
 pub const MESSAGE_LOGIN_SUCCESS: &str = "Login successfully";
 pub const MESSAGE_LOGIN_FAILED: &str = "Wrong username or password, please try again";
 pub const MESSAGE_USER_NOT_FOUND: &str = "User not found";

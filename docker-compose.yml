@@ -9,10 +9,10 @@ services:
     build:
       context: .
       dockerfile: docker/local/Dockerfile
-    entrypoint: [ 'bash', '-c', 'sleep infinity' ]
+#    entrypoint: [ 'bash', '-c', 'sleep infinity' ]
 #    restart: always
     ports:
-    - "5000:5000"
+    - "5003:5000"
     env_file: .env
     volumes:
       - db:/app/db

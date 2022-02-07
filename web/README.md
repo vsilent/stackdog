@@ -14,6 +14,12 @@ OR
 `docker build . -t stackdog`
 `docker run -p8080:8080 stackdog`
 
+## Test API
+
+
+
+
+
 ## Production build
 
 `npm install`

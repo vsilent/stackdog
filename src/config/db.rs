@@ -7,9 +7,6 @@ use diesel::{
 };
 use crate::schema::users::columns::updated_at;
 use chrono::Utc;
-use diesel::connection::SimpleConnection;
-use crate::schema::users::dsl::users;
-use diesel::RunQueryDsl;
 
 embed_migrations!();
 

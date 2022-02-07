@@ -1,5 +1,4 @@
 use crate::{
-    constants,
     config::db::Connection,
     models::{user_token::UserToken},
     schema::users::{self, dsl::*},
