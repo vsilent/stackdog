@@ -52,6 +52,7 @@ async fn main() -> io::Result<()> {
     let app_url = format!("{}:{}", &app_host, &app_port);
     let db_url = env::var("DATABASE_URL").expect("DATABASE_URL not found.");
 
+    println!("Starting server..");
     HttpServer::new(move || {
         App::new()
             .wrap(Cors::new() // allowed_origin return access-control-allow-origin: * by default

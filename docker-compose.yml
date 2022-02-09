@@ -9,7 +9,8 @@ services:
     build:
       context: .
       dockerfile: docker/local/Dockerfile
-#    entrypoint: [ 'bash', '-c', 'sleep infinity' ]
+    #entrypoint: [ 'bash', '-c', 'sleep infinity' ]
+    entrypoint: ['/app/stackdog']
 #    restart: always
     ports:
     - "5003:5000"

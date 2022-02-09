@@ -20,7 +20,7 @@ pub fn config_services(cfg: &mut web::ServiceConfig) {
             .service(
                 web::scope("/services")
                     .service(
-                        web::resource("")
+                        web::resource("/")
                             .route(web::get().to(docker_controller::find_all))
                     )
                     // .service(

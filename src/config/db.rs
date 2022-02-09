@@ -5,8 +5,8 @@ use diesel::{
     r2d2::{self, ConnectionManager},
     dsl
 };
-use crate::schema::users::columns::updated_at;
-use chrono::Utc;
+
+
 
 embed_migrations!();
 

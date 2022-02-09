@@ -13,7 +13,7 @@ use actix_web::{
     },
     web,
 };
-use crate::models::user::UserDTO;
+
 
 #[derive(Serialize, Deserialize)]
 pub struct TokenBodyResponse {
