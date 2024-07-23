@@ -6,8 +6,6 @@ use diesel::{
     dsl
 };
 
-
-
 embed_migrations!();
 
 // #[cfg(not(test))]

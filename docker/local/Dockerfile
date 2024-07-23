@@ -39,6 +39,9 @@ RUN apt-get update; \
     apt-get install --no-install-recommends -y libpq-dev sqlite3 libsqlite3-dev; \
     rm -rf /var/lib/apt/lists/*
 
+from rustscan/rustscan:latest as rustscan
+COPY --from=rustscan /app/rustscan/target/release/rustscan /usr/local/bin/rustscan
+
 # copy binary and configuration files
 COPY --from=build /app/target/release/stackdog .
 COPY --from=build /app/.env .

@@ -17,4 +17,4 @@ pub const AUTHORIZATION: &str = "Authorization";
 pub const EMPTY: &str = "";
 
 // ignore routes
-pub const IGNORE_ROUTES: [&str; 2] = ["/api/ping", "/api/auth/login"];
+pub const IGNORE_ROUTES: [&str; 3] = ["/api/ping", "/api/auth/login", "/api/scan"];

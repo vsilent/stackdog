@@ -1,7 +1,12 @@
 use crate::{
     constants, models::response::ResponseBody, services::docker_service,
 };
-use actix_web::{HttpResponse, Result};
+use actix_web::{web, HttpResponse, Result};
+// use crate::{
+//     models::{
+//         docker::{DockerTDO},
+//     }
+// };
 
 pub async fn find_all() -> Result<HttpResponse> {
     match docker_service::find_all().await {
@@ -10,6 +15,25 @@ pub async fn find_all() -> Result<HttpResponse> {
         Err(err) => Ok(err.response()),
     }
 }
+
+pub async fn find_one(id: String) -> Result<HttpResponse> {
+    debug!("Get container by id ... {:?}", id);
+    match docker_service::find_one(id).await {
+        Ok(message) => Ok(HttpResponse::Ok().json(
+            ResponseBody::new(constants::EMPTY, &message))),
+        Err(err) => Ok(err.response()),
+    }
+}
+
+pub async fn get_logs(container_name: String) -> Result<HttpResponse> {
+    debug!("Get container logs by id ... {:?}", container_name);
+    match docker_service::get_logs(container_name.as_str()).await {
+        Ok(message) => Ok(HttpResponse::Ok().json(
+            ResponseBody::new(constants::EMPTY, &message))),
+        Err(err) => Ok(err.response()),
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

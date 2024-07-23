@@ -40,12 +40,26 @@ use futures::FutureExt;
 use std::{io, env};
 use std::default::Default;
 use actix_cors::Cors;
+use tracing;
+use tracing::{info, Level};
+use tracing_subscriber::FmtSubscriber;
 
 #[actix_rt::main]
 async fn main() -> io::Result<()> {
     dotenv::dotenv().expect("Could not read .env file");
     env::set_var("RUST_LOG", "actix_web=debug");
     env_logger::init();
+    // a builder for `FmtSubscriber`.
+    let subscriber = FmtSubscriber::builder()
+        // all spans/events with a level higher than TRACE (e.g, debug, info, warn, etc.)
+        // will be written to stdout.
+        .with_max_level(Level::TRACE)
+        // completes the builder.
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("setting default subscriber failed");
+
 
     let app_host = env::var("APP_HOST").expect("APP_HOST not found.");
     let app_port = env::var("APP_PORT").expect("APP_PORT not found.");

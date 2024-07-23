@@ -7,6 +7,14 @@ pub fn config_services(cfg: &mut web::ServiceConfig) {
         web::scope("/api")
             .service(ping_controller::ping)
             .service(
+                web::resource("/scan/online")
+                .route(web::post().to(scan_controller::scan_online))
+            )
+            .service(
+                web::resource("/scan/ssl")
+                    .route(web::post().to(scan_controller::scan_ssl))
+            )
+            .service(
                 web::scope("/auth")
                     .service(
                         web::resource("/login")
@@ -23,14 +31,14 @@ pub fn config_services(cfg: &mut web::ServiceConfig) {
                         web::resource("/")
                             .route(web::get().to(docker_controller::find_all))
                     )
-                    // .service(
-                    //     web::resource("/{id}")
-                    //         .route(web::get().to(docker_controller::service_view))
-                    // )
-                    // .service(
-                    //     web::resource("/{id}/logs")
-                    //         .route(web::get().to(docker_controller::service_logs))
-                    // )
+                    .service(
+                        web::resource("/{id}")
+                            .route(web::get().to(docker_controller::find_one))
+                    )
+                    .service(
+                        web::resource("/{id}/logs")
+                            .route(web::get().to(docker_controller::get_logs))
+                    )
                     // .service(
                     //     web::resource("/{id}/restart")
                     //         .route(web::get().to(docker_controller::service_restart))
