@@ -4,7 +4,7 @@ volumes:
       driver: local
 services:
   stackdog:
-    container_name: backend
+    container_name: stackdog
 #    image: trydirect/stackdog:latest
     build:
       context: .
@@ -17,4 +17,7 @@ services:
     env_file: .env
     volumes:
       - db:/app/db
-
+      - ./.env:/app/.env:r
+    environment:
+      - RUST_LOG=debug
+      - RUST_BACKTRACE=1

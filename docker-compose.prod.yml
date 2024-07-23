@@ -1,7 +1,7 @@
 version: '3'
 services:
   stackdog:
-    container_name: backend
+    container_name: stackdog
     image: trydirect/stackdog
     restart: always
     ports:

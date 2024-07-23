@@ -29,18 +29,17 @@ RUN rm -rf ./target/release/deps/stackdog*; \
 
 
 # deploy stage
-FROM debian:buster-slim
+FROM debian:bookworm-slim
 
 # create app directory
 WORKDIR /app
 
 # install libpq
 RUN apt-get update; \
-    apt-get install --no-install-recommends -y libpq-dev sqlite3 libsqlite3-dev; \
+    apt-get install --no-install-recommends -y libpq-dev sqlite3 libsqlite3-dev openssl; \
     rm -rf /var/lib/apt/lists/*
 
-from rustscan/rustscan:latest as rustscan
-COPY --from=rustscan /app/rustscan/target/release/rustscan /usr/local/bin/rustscan
+COPY --from=rustscan/rustscan:latest  /usr/local/bin/rustscan /usr/local/bin/
 
 # copy binary and configuration files
 COPY --from=build /app/target/release/stackdog .
