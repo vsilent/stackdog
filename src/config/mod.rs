@@ -1,2 +1,3 @@
-pub mod app;
+//! Configuration module
+
 pub mod db;

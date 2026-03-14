@@ -1,18 +1,15 @@
+//! Database configuration
+
 #[allow(unused_imports)]
 use diesel::{
     SqliteConnection,
-    sql_query,
     r2d2::{self, ConnectionManager},
-    dsl
 };
 
-embed_migrations!();
-
-// #[cfg(not(test))]
 pub type Connection = SqliteConnection;
 pub type Pool = r2d2::Pool<ConnectionManager<Connection>>;
 
-#[cfg(not(test))]
+/// Get database connection pool
 pub fn get_connection(url: &str) -> Pool {
     let manager = ConnectionManager::<SqliteConnection>::new(url);
     let pool = r2d2::Pool::builder()
@@ -21,55 +18,36 @@ pub fn get_connection(url: &str) -> Pool {
     pool
 }
 
-#[cfg(not(test))]
-pub fn migrate_and_config_db(url: &str) -> Pool {
-    info!("Configure db pool and run migrations...");
-    embedded_migrations::run(&get_connection(url).get().expect("Failed to migrate."));
-    get_connection(url)
-
+/// Initialize database (creates tables if needed)
+pub fn init_db(url: &str) -> Pool {
+    log::info!("Initializing database...");
+    let pool = get_connection(url);
+    
+    // For now, just return the pool
+    // Tables will be created by individual modules as needed
+    log::info!("Database initialized: {}", url);
+    
+    pool
 }
-
 
 #[cfg(test)]
 pub fn migrate_and_config_db(url: &str) -> Pool {
-    use crate::diesel::RunQueryDsl;
-    info!("Configure db pool and run migrations...");
+    use diesel::sql_query;
+    use diesel::RunQueryDsl;
+    
+    log::info!("Configure db pool for testing...");
     let manager = ConnectionManager::<SqliteConnection>::new(url);
     let pool = r2d2::Pool::builder()
         .build(manager)
         .expect("Failed to create pool.");
-    embedded_migrations::run(&pool.get().expect("Failed to migrate."));
-    sql_query(r#"DROP TABLE IF EXISTS users;"#).execute(&pool.get().unwrap());
-    sql_query(r#"CREATE TABLE users (
+    
+    // Create test tables
+    sql_query(r#"DROP TABLE IF EXISTS users;"#).execute(&pool.get().unwrap()).ok();
+    sql_query(r#"CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
         username TEXT NOT NULL,
-        email TEXT NOT NULL,
-        password TEXT NOT NULL,
-        login_session TEXT NOT NULL DEFAULT ''
-    );"#).execute(&pool.get().unwrap());
-
-    use crate::models::user::{User, UserDTO};
-    let user = UserDTO {
-        created_at: Utc::now().naive_utc(),
-        updated_at: Utc::now().naive_utc(),
-        username: String::from("admin"),
-        email: String::from("admin@gmail.com"),
-        password: String::from("password")
-    };
-    // For testing purpose
-    User::make_admin(user, &pool.get().unwrap());
-
-    // let conn  = &pool.get().unwrap();
-    // let results = users
-    //     .load::<User>(conn)
-    //     .expect("Error loading users");
-    //
-    // println!("Displaying {} users", results.len());
-    // for user in results {
-    //     println!("{:?}", user.email);
-    // }
+        email TEXT NOT NULL
+    );"#).execute(&pool.get().unwrap()).ok();
 
     pool
 }

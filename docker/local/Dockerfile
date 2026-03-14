@@ -21,7 +21,8 @@ RUN cargo build --release; \
 COPY ./src ./src
 
 # add .env and secret.key for Docker env
-RUN touch .env;
+#RUN touch .env;
+COPY .env.sample /app/.env
 
 # rebuild app with project source
 RUN rm -rf ./target/release/deps/stackdog*; \
