@@ -8,24 +8,33 @@
 extern crate log;
 #[macro_use]
 extern crate serde_json;
+extern crate bollard;
 
 extern crate actix_rt;
+extern crate actix_cors;
+extern crate actix_web;
 extern crate env_logger;
 extern crate dotenv;
 extern crate tracing;
 extern crate tracing_subscriber;
 
 mod config;
+mod api;
+mod database;
+mod docker;
 
 use std::{io, env};
+use actix_web::{HttpServer, App, web};
+use actix_cors::Cors;
 use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
+use database::{create_pool, init_database};
 
 #[actix_rt::main]
 async fn main() -> io::Result<()> {
     // Load environment
     dotenv::dotenv().expect("Could not read .env file");
-    
+
     // Setup logging
     env::set_var("RUST_LOG", "stackdog=info,actix_web=info");
     env_logger::init();
@@ -50,57 +59,43 @@ async fn main() -> io::Result<()> {
     info!("Port: {}", app_port);
     info!("Database: {}", database_url);
     
-    // Check Linux-specific features
-    #[cfg(target_os = "linux")]
-    {
-        info!("Linux detected - eBPF and firewall features available");
-        
-        // Check eBPF support
-        match stackdog::collectors::EbpfLoader::new() {
-            Ok(loader) => {
-                info!("eBPF loader initialized");
-                if loader.is_ebpf_supported() {
-                    info!("✓ eBPF is supported on this system");
-                } else {
-                    info!("⚠ eBPF is not supported (kernel may be too old)");
-                }
-            }
-            Err(e) => {
-                info!("eBPF loader error: {}", e);
-            }
-        }
-        
-        // Check nftables
-        match stackdog::firewall::NfTablesBackend::new() {
-            Ok(_) => info!("✓ nftables backend available"),
-            Err(e) => info!("⚠ nftables not available: {}", e),
-        }
-        
-        // Check iptables
-        match stackdog::firewall::IptablesBackend::new() {
-            Ok(_) => info!("✓ iptables backend available"),
-            Err(e) => info!("⚠ iptables not available: {}", e),
-        }
-    }
+    let app_url = format!("{}:{}", &app_host, &app_port);
     
-    #[cfg(not(target_os = "linux"))]
-    {
-        info!("Non-Linux platform - some features unavailable");
-        info!("For full functionality, run on Linux with kernel 4.19+");
-    }
+    // Initialize database
+    info!("Initializing database...");
+    let pool = create_pool(&database_url).expect("Failed to create database pool");
+    init_database(&pool).expect("Failed to initialize database");
+    info!("Database initialized successfully");
     
     info!("🎉 Stackdog Security ready!");
     info!("");
-    info!("Next steps:");
-    info!("  1. Configure rules in your application");
-    info!("  2. Start event collectors");
-    info!("  3. Monitor for threats");
+    info!("API Endpoints:");
+    info!("  GET  /api/security/status     - Security status");
+    info!("  GET  /api/alerts              - List alerts");
+    info!("  POST /api/alerts/:id/ack      - Acknowledge alert");
+    info!("  POST /api/alerts/:id/resolve  - Resolve alert");
+    info!("  GET  /api/containers          - List containers");
+    info!("  POST /api/containers/:id/quar - Quarantine container");
+    info!("  GET  /api/threats             - List threats");
+    info!("  GET  /api/threats/statistics  - Threat statistics");
+    info!("  WS   /ws                      - WebSocket for real-time updates");
+    info!("");
+    info!("Web Dashboard: http://{}:{}", app_host, app_port);
     info!("");
     
-    // For now, just exit after displaying info
-    // In production, this would start the security monitoring loop
-    println!("\n✅ Stackdog Security initialized successfully!");
-    println!("   See documentation for usage examples.");
+    // Start HTTP server
+    info!("Starting HTTP server on {}...", app_url);
     
-    Ok(())
+    let pool_data = web::Data::new(pool);
+    
+    HttpServer::new(move || {
+        App::new()
+            .app_data(pool_data.clone())
+            .wrap(Cors::permissive())
+            .wrap(actix_web::middleware::Logger::default())
+            .configure(api::configure_all_routes)
+    })
+    .bind(&app_url)?
+    .run()
+    .await
 }

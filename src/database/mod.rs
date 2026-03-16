@@ -1,9 +1,9 @@
 //! Database module
-//!
-//! Database operations for security events and baselines
 
-pub mod events;
-pub mod baselines;
+pub mod connection;
+pub mod models;
+pub mod repositories;
 
-/// Marker struct for module tests
-pub struct DatabaseMarker;
+pub use connection::{create_pool, init_database, DbPool};
+pub use models::*;
+pub use repositories::alerts::*;

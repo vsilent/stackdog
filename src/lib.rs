@@ -22,6 +22,10 @@ extern crate serde_json;
 #[macro_use]
 extern crate log;
 
+// Docker (Linux only)
+#[cfg(target_os = "linux")]
+extern crate bollard;
+
 // Optional eBPF (Linux only)
 #[cfg(all(target_os = "linux", feature = "ebpf"))]
 extern crate aya;
@@ -36,6 +40,7 @@ extern crate candle_nn;
 pub mod events;
 pub mod rules;
 pub mod alerting;
+pub mod models;
 
 // Security modules - Linux-specific
 #[cfg(target_os = "linux")]
