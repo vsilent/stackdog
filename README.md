@@ -5,9 +5,12 @@
 ![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)
 
+
 <p align="center">
-<img src="https://user-images.githubusercontent.com/4247/109795596-c7a14f00-7c1f-11eb-8358-583d4008f42d.jpg" alt="Stackdog Security Logo" width="300"/>
+<img src="https://github.com/user-attachments/assets/d920d902-41ec-461c-977a-9485927d786b" alt="Stackdog Security" width="150"/>
+
 </p>
+
 
 ## 🛡️ Security Platform for Docker Containers & Linux Servers
 
