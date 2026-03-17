@@ -59,6 +59,11 @@ impl EventRingBuffer {
         self.capacity
     }
     
+    /// View events without consuming them
+    pub fn events(&self) -> &[SyscallEvent] {
+        &self.buffer
+    }
+
     /// Clear the buffer
     pub fn clear(&mut self) {
         self.buffer.clear();
