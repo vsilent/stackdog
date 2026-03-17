@@ -5,11 +5,13 @@
 ![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)
 
+
 <p align="center">
-<img src="https://user-images.githubusercontent.com/4247/109795596-c7a14f00-7c1f-11eb-8358-583d4008f42d.jpg" alt="Stackdog Security Logo" width="300"/>
+<img width="280" height="280" alt="STACKDOG" src="https://github.com/user-attachments/assets/0c8a9216-8315-4ef7-9b73-d96c40521ed1" />
 </p>
 
-## 🛡️ Security Platform for Docker Containers & Linux Servers
+
+## 🛡️ Security platform for Docker Containers & Linux Servers
 
 **Stackdog Security** is a Rust-based security platform that provides real-time threat detection, AI-powered anomaly detection, and automated response for containerized applications.
 
