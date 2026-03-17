@@ -306,7 +306,7 @@
 ## Technical Debt
 
 - [ ] **DEBT-001**: Remove legacy container management code (v1.0.0)
-- [ ] **DEBT-002**: Update Diesel to v2 (breaking changes)
+- [x] **DEBT-002**: Replaced Diesel with rusqlite + r2d2
 - [ ] **DEBT-003**: Migrate from actix-web 3.x to 4.x
 - [ ] **DEBT-004**: Improve error handling with `thiserror`
 - [ ] **DEBT-005**: Add comprehensive documentation comments

@@ -543,7 +543,8 @@ copies of the Software...
 - [aya-rs](https://aya-rs.dev/) - Rust eBPF framework
 - [Candle](https://github.com/huggingface/candle) - HuggingFace ML framework
 - [Actix-web](https://actix.rs/) - Rust web framework
-- [Diesel](http://diesel.rs/) - Rust ORM
+- [rusqlite](https://github.com/rusqlite/rusqlite) - SQLite bindings for Rust
+- [r2d2](https://github.com/sfackler/r2d2) - Connection pool
 
 ---
 

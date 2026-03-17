@@ -47,7 +47,7 @@
 | **eBPF** | aya-rs | Pure Rust eBPF framework |
 | **Firewall** | nftables (netlink) | Modern, faster than iptables |
 | **Web Framework** | Actix-web | High performance, existing codebase |
-| **Database** | SQLite + Diesel | Embedded, low overhead |
+| **Database** | SQLite + rusqlite + r2d2 | Embedded, low overhead |
 | **Frontend** | React + TypeScript | Existing codebase, rich ecosystem |
 
 ---
@@ -463,8 +463,8 @@ actix-rt = "2"
 actix-cors = "0.6"
 
 # Database
-diesel = { version = "2", features = ["sqlite", "r2d2", "chrono"] }
-diesel_migrations = "2"
+rusqlite = { version = "0.32", features = ["bundled"] }
+r2d2 = "0.8"
 
 # eBPF
 aya = "0.12"

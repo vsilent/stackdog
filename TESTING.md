@@ -31,10 +31,7 @@ mkdir -p db
 # Set database URL
 export DATABASE_URL=./db/stackdog.db
 
-# Run migrations
-diesel migration run
-
-# Run tests
+# Run tests (schema is initialized automatically via init_database)
 cargo test --lib
 ```
 
@@ -135,8 +132,6 @@ touch db/stackdog.db
 # Set environment variable
 export DATABASE_URL=./db/stackdog.db
 
-# Run migrations
-diesel migration run
 ```
 
 ### eBPF Tests
@@ -183,10 +178,7 @@ RUST_BACKTRACE=full
 ## Troubleshooting
 
 ### "database table not found"
-```bash
-# Run migrations
-diesel migration run
-```
+Tables are created automatically by `init_database` on startup. Ensure `DATABASE_URL` points to a writable path.
 
 ### "permission denied"
 ```bash
