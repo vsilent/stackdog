@@ -29,7 +29,7 @@ impl DockerClient {
     
     /// List all containers
     pub async fn list_containers(&self, all: bool) -> Result<Vec<ContainerInfo>> {
-        let options = Some(ListContainersOptions {
+        let options: Option<ListContainersOptions<String>> = Some(ListContainersOptions {
             all,
             size: false,
             ..Default::default()
@@ -85,7 +85,7 @@ impl DockerClient {
     /// Quarantine a container (disconnect from all networks)
     pub async fn quarantine_container(&self, container_id: &str) -> Result<()> {
         // List all networks
-        let networks: Vec<bollard::models::NetworkResource> = self.client
+        let networks: Vec<bollard::models::Network> = self.client
             .list_networks(None::<ListNetworksOptions<String>>)
             .await
             .context("Failed to list networks")?;
@@ -104,7 +104,7 @@ impl DockerClient {
                 };
 
                 let _ = self.client
-                    .disconnect_network(&name, Some(options))
+                    .disconnect_network(&name, options)
                     .await;
             }
         }
