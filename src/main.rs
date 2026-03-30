@@ -98,6 +98,9 @@ async fn run_serve() -> io::Result<()> {
     info!("  POST /api/containers/:id/quar - Quarantine container");
     info!("  GET  /api/threats             - List threats");
     info!("  GET  /api/threats/statistics  - Threat statistics");
+    info!("  GET  /api/logs/sources        - List log sources");
+    info!("  POST /api/logs/sources        - Add log source");
+    info!("  GET  /api/logs/summaries      - List AI summaries");
     info!("  WS   /ws                      - WebSocket for real-time updates");
     info!("");
     info!("Web Dashboard: http://{}:{}", app_host, app_port);
