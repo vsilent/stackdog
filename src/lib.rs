@@ -59,6 +59,9 @@ pub mod database;
 // Configuration
 pub mod config;
 
+// Log sniffing
+pub mod sniff;
+
 // Re-export commonly used types
 pub use events::syscall::{SyscallEvent, SyscallType};
 pub use events::security::{SecurityEvent, NetworkEvent, ContainerEvent, AlertEvent};
