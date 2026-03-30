@@ -53,6 +53,9 @@ reqwest = { version = "0.12", features = ["json"] }
 # Compression
 zstd = "0.13"
 
+# Stream utilities
+futures-util = "0.3"
+
 # eBPF (Linux only)
 [target.'cfg(target_os = "linux")'.dependencies]
 aya = "0.12"
