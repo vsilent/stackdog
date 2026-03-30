@@ -6,3 +6,4 @@
 pub mod config;
 pub mod discovery;
 pub mod reader;
+pub mod analyzer;
