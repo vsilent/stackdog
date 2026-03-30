@@ -55,9 +55,13 @@ pub mod response;
 pub mod correlator;
 pub mod baselines;
 pub mod database;
+pub mod docker;
 
 // Configuration
 pub mod config;
+
+// Log sniffing
+pub mod sniff;
 
 // Re-export commonly used types
 pub use events::syscall::{SyscallEvent, SyscallType};

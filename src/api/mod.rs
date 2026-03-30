@@ -7,6 +7,7 @@ pub mod alerts;
 pub mod containers;
 pub mod threats;
 pub mod websocket;
+pub mod logs;
 
 /// Marker struct for module tests
 pub struct ApiMarker;
@@ -17,6 +18,7 @@ pub use alerts::configure_routes as configure_alerts_routes;
 pub use containers::configure_routes as configure_containers_routes;
 pub use threats::configure_routes as configure_threats_routes;
 pub use websocket::configure_routes as configure_websocket_routes;
+pub use logs::configure_routes as configure_logs_routes;
 
 /// Configure all API routes
 pub fn configure_all_routes(cfg: &mut actix_web::web::ServiceConfig) {
@@ -25,4 +27,5 @@ pub fn configure_all_routes(cfg: &mut actix_web::web::ServiceConfig) {
     configure_containers_routes(cfg);
     configure_threats_routes(cfg);
     configure_websocket_routes(cfg);
+    configure_logs_routes(cfg);
 }

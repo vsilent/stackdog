@@ -1,0 +1,536 @@
+//! AI-powered log analysis engine
+//!
+//! Provides log summarization and anomaly detection via two backends:
+//! - OpenAI-compatible API (works with OpenAI, Ollama, vLLM, etc.)
+//! - Local Candle inference (requires `ml` feature)
+
+use anyhow::{Result, Context};
+use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+use crate::sniff::reader::LogEntry;
+
+/// Summary produced by AI analysis of log entries
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogSummary {
+    pub source_id: String,
+    pub period_start: DateTime<Utc>,
+    pub period_end: DateTime<Utc>,
+    pub total_entries: usize,
+    pub summary_text: String,
+    pub error_count: usize,
+    pub warning_count: usize,
+    pub key_events: Vec<String>,
+    pub anomalies: Vec<LogAnomaly>,
+}
+
+/// An anomaly detected in log entries
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogAnomaly {
+    pub description: String,
+    pub severity: AnomalySeverity,
+    pub sample_line: String,
+}
+
+/// Severity of a detected anomaly
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum AnomalySeverity {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+impl std::fmt::Display for AnomalySeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AnomalySeverity::Low => write!(f, "Low"),
+            AnomalySeverity::Medium => write!(f, "Medium"),
+            AnomalySeverity::High => write!(f, "High"),
+            AnomalySeverity::Critical => write!(f, "Critical"),
+        }
+    }
+}
+
+/// Trait for AI-powered log analysis
+#[async_trait]
+pub trait LogAnalyzer: Send + Sync {
+    /// Summarize a batch of log entries
+    async fn summarize(&self, entries: &[LogEntry]) -> Result<LogSummary>;
+}
+
+/// OpenAI-compatible API backend (works with OpenAI, Ollama, vLLM, etc.)
+pub struct OpenAiAnalyzer {
+    api_url: String,
+    api_key: Option<String>,
+    model: String,
+    client: reqwest::Client,
+}
+
+impl OpenAiAnalyzer {
+    pub fn new(api_url: String, api_key: Option<String>, model: String) -> Self {
+        Self {
+            api_url,
+            api_key,
+            model,
+            client: reqwest::Client::new(),
+        }
+    }
+
+    fn build_prompt(entries: &[LogEntry]) -> String {
+        let lines: Vec<&str> = entries.iter().map(|e| e.line.as_str()).collect();
+        let log_block = lines.join("\n");
+
+        format!(
+            "Analyze these log entries and provide a JSON response with:\n\
+             1. \"summary\": A concise summary of what happened\n\
+             2. \"error_count\": Number of errors found\n\
+             3. \"warning_count\": Number of warnings found\n\
+             4. \"key_events\": Array of important events (max 5)\n\
+             5. \"anomalies\": Array of objects with \"description\", \"severity\" (Low/Medium/High/Critical), \"sample_line\"\n\n\
+             Respond ONLY with valid JSON, no markdown.\n\n\
+             Log entries:\n{}", log_block
+        )
+    }
+}
+
+/// Response structure from the LLM
+#[derive(Debug, Deserialize)]
+struct LlmAnalysis {
+    summary: Option<String>,
+    error_count: Option<usize>,
+    warning_count: Option<usize>,
+    key_events: Option<Vec<String>>,
+    anomalies: Option<Vec<LlmAnomaly>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LlmAnomaly {
+    description: Option<String>,
+    severity: Option<String>,
+    sample_line: Option<String>,
+}
+
+/// OpenAI chat completion response
+#[derive(Debug, Deserialize)]
+struct ChatCompletionResponse {
+    choices: Vec<ChatChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatChoice {
+    message: ChatMessage,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ChatMessage {
+    role: String,
+    content: String,
+}
+
+/// Parse LLM severity string to enum
+fn parse_severity(s: &str) -> AnomalySeverity {
+    match s.to_lowercase().as_str() {
+        "critical" => AnomalySeverity::Critical,
+        "high" => AnomalySeverity::High,
+        "medium" => AnomalySeverity::Medium,
+        _ => AnomalySeverity::Low,
+    }
+}
+
+/// Parse the LLM JSON response into a LogSummary
+fn parse_llm_response(source_id: &str, entries: &[LogEntry], raw_json: &str) -> Result<LogSummary> {
+    let analysis: LlmAnalysis = serde_json::from_str(raw_json)
+        .context("Failed to parse LLM response as JSON")?;
+
+    let anomalies = analysis.anomalies.unwrap_or_default()
+        .into_iter()
+        .map(|a| LogAnomaly {
+            description: a.description.unwrap_or_default(),
+            severity: parse_severity(&a.severity.unwrap_or_default()),
+            sample_line: a.sample_line.unwrap_or_default(),
+        })
+        .collect();
+
+    let (start, end) = entry_time_range(entries);
+
+    Ok(LogSummary {
+        source_id: source_id.to_string(),
+        period_start: start,
+        period_end: end,
+        total_entries: entries.len(),
+        summary_text: analysis.summary.unwrap_or_else(|| "No summary available".into()),
+        error_count: analysis.error_count.unwrap_or(0),
+        warning_count: analysis.warning_count.unwrap_or(0),
+        key_events: analysis.key_events.unwrap_or_default(),
+        anomalies,
+    })
+}
+
+/// Compute time range from entries
+fn entry_time_range(entries: &[LogEntry]) -> (DateTime<Utc>, DateTime<Utc>) {
+    if entries.is_empty() {
+        let now = Utc::now();
+        return (now, now);
+    }
+    let start = entries.iter().map(|e| e.timestamp).min().unwrap_or_else(Utc::now);
+    let end = entries.iter().map(|e| e.timestamp).max().unwrap_or_else(Utc::now);
+    (start, end)
+}
+
+#[async_trait]
+impl LogAnalyzer for OpenAiAnalyzer {
+    async fn summarize(&self, entries: &[LogEntry]) -> Result<LogSummary> {
+        if entries.is_empty() {
+            return Ok(LogSummary {
+                source_id: String::new(),
+                period_start: Utc::now(),
+                period_end: Utc::now(),
+                total_entries: 0,
+                summary_text: "No log entries to analyze".into(),
+                error_count: 0,
+                warning_count: 0,
+                key_events: Vec::new(),
+                anomalies: Vec::new(),
+            });
+        }
+
+        let prompt = Self::build_prompt(entries);
+        let source_id = &entries[0].source_id;
+
+        let mut request_body = serde_json::json!({
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a log analysis assistant. Analyze logs and return structured JSON."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.1
+        });
+
+        let url = format!("{}/chat/completions", self.api_url.trim_end_matches('/'));
+
+        let mut req = self.client.post(&url)
+            .header("Content-Type", "application/json");
+
+        if let Some(ref key) = self.api_key {
+            req = req.header("Authorization", format!("Bearer {}", key));
+        }
+
+        let response = req
+            .json(&request_body)
+            .send()
+            .await
+            .context("Failed to send request to AI API")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("AI API returned status {}: {}", status, body);
+        }
+
+        let completion: ChatCompletionResponse = response.json().await
+            .context("Failed to parse AI API response")?;
+
+        let content = completion.choices
+            .first()
+            .map(|c| c.message.content.clone())
+            .unwrap_or_default();
+
+        // Strip markdown code fences if present
+        let json_str = content
+            .trim()
+            .strip_prefix("```json").unwrap_or(&content)
+            .strip_prefix("```").unwrap_or(&content)
+            .strip_suffix("```").unwrap_or(&content)
+            .trim();
+
+        parse_llm_response(source_id, entries, json_str)
+    }
+}
+
+/// Fallback local analyzer that uses pattern matching (no AI required)
+pub struct PatternAnalyzer;
+
+impl PatternAnalyzer {
+    pub fn new() -> Self {
+        Self
+    }
+
+    fn count_pattern(entries: &[LogEntry], patterns: &[&str]) -> usize {
+        entries.iter().filter(|e| {
+            let lower = e.line.to_lowercase();
+            patterns.iter().any(|p| lower.contains(p))
+        }).count()
+    }
+}
+
+#[async_trait]
+impl LogAnalyzer for PatternAnalyzer {
+    async fn summarize(&self, entries: &[LogEntry]) -> Result<LogSummary> {
+        if entries.is_empty() {
+            return Ok(LogSummary {
+                source_id: String::new(),
+                period_start: Utc::now(),
+                period_end: Utc::now(),
+                total_entries: 0,
+                summary_text: "No log entries to analyze".into(),
+                error_count: 0,
+                warning_count: 0,
+                key_events: Vec::new(),
+                anomalies: Vec::new(),
+            });
+        }
+
+        let source_id = &entries[0].source_id;
+        let error_count = Self::count_pattern(entries, &["error", "err", "fatal", "panic", "exception"]);
+        let warning_count = Self::count_pattern(entries, &["warn", "warning"]);
+        let (start, end) = entry_time_range(entries);
+
+        let mut anomalies = Vec::new();
+
+        // Detect error spikes
+        if error_count > entries.len() / 4 {
+            if let Some(sample) = entries.iter().find(|e| e.line.to_lowercase().contains("error")) {
+                anomalies.push(LogAnomaly {
+                    description: format!("High error rate: {} errors in {} entries", error_count, entries.len()),
+                    severity: AnomalySeverity::High,
+                    sample_line: sample.line.clone(),
+                });
+            }
+        }
+
+        let summary_text = format!(
+            "{} log entries analyzed. {} errors, {} warnings detected.",
+            entries.len(), error_count, warning_count
+        );
+
+        Ok(LogSummary {
+            source_id: source_id.clone(),
+            period_start: start,
+            period_end: end,
+            total_entries: entries.len(),
+            summary_text,
+            error_count,
+            warning_count,
+            key_events: Vec::new(),
+            anomalies,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn make_entries(lines: &[&str]) -> Vec<LogEntry> {
+        lines.iter().map(|line| LogEntry {
+            source_id: "test-source".into(),
+            timestamp: Utc::now(),
+            line: line.to_string(),
+            metadata: HashMap::new(),
+        }).collect()
+    }
+
+    #[test]
+    fn test_anomaly_severity_display() {
+        assert_eq!(AnomalySeverity::Low.to_string(), "Low");
+        assert_eq!(AnomalySeverity::Critical.to_string(), "Critical");
+    }
+
+    #[test]
+    fn test_parse_severity() {
+        assert_eq!(parse_severity("critical"), AnomalySeverity::Critical);
+        assert_eq!(parse_severity("High"), AnomalySeverity::High);
+        assert_eq!(parse_severity("MEDIUM"), AnomalySeverity::Medium);
+        assert_eq!(parse_severity("low"), AnomalySeverity::Low);
+        assert_eq!(parse_severity("unknown"), AnomalySeverity::Low);
+    }
+
+    #[test]
+    fn test_build_prompt_contains_log_lines() {
+        let entries = make_entries(&["line 1", "line 2"]);
+        let prompt = OpenAiAnalyzer::build_prompt(&entries);
+        assert!(prompt.contains("line 1"));
+        assert!(prompt.contains("line 2"));
+        assert!(prompt.contains("JSON"));
+    }
+
+    #[test]
+    fn test_parse_llm_response_valid() {
+        let entries = make_entries(&["test line"]);
+        let json = r#"{
+            "summary": "System running normally",
+            "error_count": 0,
+            "warning_count": 1,
+            "key_events": ["Service started"],
+            "anomalies": []
+        }"#;
+
+        let summary = parse_llm_response("src-1", &entries, json).unwrap();
+        assert_eq!(summary.source_id, "src-1");
+        assert_eq!(summary.summary_text, "System running normally");
+        assert_eq!(summary.error_count, 0);
+        assert_eq!(summary.warning_count, 1);
+        assert_eq!(summary.key_events.len(), 1);
+        assert!(summary.anomalies.is_empty());
+    }
+
+    #[test]
+    fn test_parse_llm_response_with_anomalies() {
+        let entries = make_entries(&["error: disk full"]);
+        let json = r#"{
+            "summary": "Disk issue detected",
+            "error_count": 1,
+            "warning_count": 0,
+            "key_events": ["Disk full"],
+            "anomalies": [
+                {
+                    "description": "Disk full errors detected",
+                    "severity": "Critical",
+                    "sample_line": "error: disk full"
+                }
+            ]
+        }"#;
+
+        let summary = parse_llm_response("src-1", &entries, json).unwrap();
+        assert_eq!(summary.anomalies.len(), 1);
+        assert_eq!(summary.anomalies[0].severity, AnomalySeverity::Critical);
+        assert!(summary.anomalies[0].description.contains("Disk full"));
+    }
+
+    #[test]
+    fn test_parse_llm_response_partial_fields() {
+        let entries = make_entries(&["line"]);
+        let json = r#"{"summary": "Minimal response"}"#;
+
+        let summary = parse_llm_response("src-1", &entries, json).unwrap();
+        assert_eq!(summary.summary_text, "Minimal response");
+        assert_eq!(summary.error_count, 0);
+        assert!(summary.anomalies.is_empty());
+    }
+
+    #[test]
+    fn test_parse_llm_response_invalid_json() {
+        let entries = make_entries(&["line"]);
+        let result = parse_llm_response("src-1", &entries, "not json");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_entry_time_range_empty() {
+        let (start, end) = entry_time_range(&[]);
+        assert!(end >= start);
+    }
+
+    #[test]
+    fn test_entry_time_range_multiple() {
+        let mut entries = make_entries(&["a", "b"]);
+        entries[0].timestamp = Utc::now() - chrono::Duration::hours(1);
+        let (start, end) = entry_time_range(&entries);
+        assert!(end > start);
+    }
+
+    #[tokio::test]
+    async fn test_pattern_analyzer_empty() {
+        let analyzer = PatternAnalyzer::new();
+        let summary = analyzer.summarize(&[]).await.unwrap();
+        assert_eq!(summary.total_entries, 0);
+        assert!(summary.summary_text.contains("No log entries"));
+    }
+
+    #[tokio::test]
+    async fn test_pattern_analyzer_counts_errors() {
+        let analyzer = PatternAnalyzer::new();
+        let entries = make_entries(&[
+            "INFO: started",
+            "ERROR: connection refused",
+            "WARN: disk space low",
+            "ERROR: timeout",
+        ]);
+        let summary = analyzer.summarize(&entries).await.unwrap();
+        assert_eq!(summary.total_entries, 4);
+        assert_eq!(summary.error_count, 2);
+        assert_eq!(summary.warning_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_pattern_analyzer_detects_error_spike() {
+        let analyzer = PatternAnalyzer::new();
+        let entries = make_entries(&[
+            "ERROR: fail 1",
+            "ERROR: fail 2",
+            "ERROR: fail 3",
+            "INFO: ok",
+        ]);
+        let summary = analyzer.summarize(&entries).await.unwrap();
+        assert!(!summary.anomalies.is_empty());
+        assert_eq!(summary.anomalies[0].severity, AnomalySeverity::High);
+    }
+
+    #[tokio::test]
+    async fn test_pattern_analyzer_no_anomaly_when_low_errors() {
+        let analyzer = PatternAnalyzer::new();
+        let entries = make_entries(&[
+            "INFO: all good",
+            "INFO: running fine",
+            "INFO: healthy",
+            "ERROR: one blip",
+        ]);
+        let summary = analyzer.summarize(&entries).await.unwrap();
+        assert!(summary.anomalies.is_empty());
+    }
+
+    #[test]
+    fn test_openai_analyzer_new() {
+        let analyzer = OpenAiAnalyzer::new(
+            "http://localhost:11434/v1".into(),
+            None,
+            "llama3".into(),
+        );
+        assert_eq!(analyzer.api_url, "http://localhost:11434/v1");
+        assert!(analyzer.api_key.is_none());
+        assert_eq!(analyzer.model, "llama3");
+    }
+
+    #[tokio::test]
+    async fn test_openai_analyzer_empty_entries() {
+        let analyzer = OpenAiAnalyzer::new(
+            "http://localhost:11434/v1".into(),
+            None,
+            "llama3".into(),
+        );
+        let summary = analyzer.summarize(&[]).await.unwrap();
+        assert_eq!(summary.total_entries, 0);
+    }
+
+    #[test]
+    fn test_log_summary_serialization() {
+        let summary = LogSummary {
+            source_id: "test".into(),
+            period_start: Utc::now(),
+            period_end: Utc::now(),
+            total_entries: 10,
+            summary_text: "All good".into(),
+            error_count: 0,
+            warning_count: 0,
+            key_events: vec!["Started".into()],
+            anomalies: vec![LogAnomaly {
+                description: "Test anomaly".into(),
+                severity: AnomalySeverity::Medium,
+                sample_line: "WARN: something".into(),
+            }],
+        };
+        let json = serde_json::to_string(&summary).unwrap();
+        let deserialized: LogSummary = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.total_entries, 10);
+        assert_eq!(deserialized.anomalies[0].severity, AnomalySeverity::Medium);
+    }
+}
