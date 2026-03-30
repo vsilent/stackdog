@@ -55,6 +55,7 @@ pub mod response;
 pub mod correlator;
 pub mod baselines;
 pub mod database;
+pub mod docker;
 
 // Configuration
 pub mod config;

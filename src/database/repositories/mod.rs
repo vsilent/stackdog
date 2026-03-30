@@ -1,6 +1,6 @@
 //! Database repositories
 
 pub mod alerts;
-// TODO: Add threats and containers repositories
+pub mod log_sources;
 
 pub use alerts::*;

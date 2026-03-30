@@ -4,3 +4,4 @@
 //! Docker containers, system log files, and custom sources.
 
 pub mod config;
+pub mod discovery;
