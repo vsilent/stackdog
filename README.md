@@ -160,7 +160,7 @@ docker-compose logs -f stackdog
 | **Firewall** | nftables/iptables integration | ✅ Complete |
 | **Collectors** | eBPF syscall monitoring | ✅ Infrastructure |
 | **Log Sniffing** | Log discovery, AI analysis, archival | ✅ Complete |
-| **ML** | Candle-based anomaly detection | 🚧 In progress |
+| **ML** | Candle-based anomaly detection | ⏳ Planned |
 
 ---
 
