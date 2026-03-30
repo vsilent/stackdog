@@ -22,6 +22,10 @@ mod config;
 mod api;
 mod database;
 mod docker;
+mod events;
+mod rules;
+mod alerting;
+mod models;
 mod cli;
 mod sniff;
 
@@ -140,8 +144,10 @@ async fn run_sniff(
     info!("Interval: {}s", config.interval_secs);
     info!("AI Provider: {:?}", config.ai_provider);
 
-    // TODO: Implement sniff orchestrator (Checkpoint 6)
-    info!("⚠️  Sniff orchestrator not yet implemented");
-    Ok(())
+    let orchestrator = sniff::SniffOrchestrator::new(config)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+    orchestrator.run().await
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
