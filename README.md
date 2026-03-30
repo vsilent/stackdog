@@ -18,11 +18,13 @@
 ### 🔥 Key Features
 
 - **📊 Real-time Monitoring** — eBPF-based syscall monitoring with minimal overhead (<5% CPU)
-- **🤖 AI/ML Detection** — Candle-powered anomaly detection (native Rust, no Python)
+- **🔍 Log Sniffing** — Discover, read, and AI-summarize logs from containers and system files
+- **🤖 AI/ML Detection** — Candle-powered anomaly detection + OpenAI/Ollama log analysis
 - **🚨 Alert System** — Multi-channel notifications (Slack, email, webhook)
 - **🔒 Automated Response** — nftables/iptables firewall, container quarantine
 - **📈 Threat Scoring** — Configurable scoring with time-decay
 - **🎯 Signature Detection** — 10+ built-in threat signatures
+- **📦 Log Archival** — Deduplicate and compress logs with zstd, optionally purge originals
 
 ---
 
@@ -49,8 +51,30 @@
 git clone https://github.com/vsilent/stackdog
 cd stackdog
 
-# Build and run
+# Start the HTTP server (default)
 cargo run
+
+# Or explicitly
+cargo run -- serve
+```
+
+### Log Sniffing
+
+```bash
+# Discover and analyze logs (one-shot)
+cargo run -- sniff --once
+
+# Continuous monitoring with AI analysis
+cargo run -- sniff --ai-provider openai
+
+# Use Ollama (local LLM)
+STACKDOG_AI_API_URL=http://localhost:11434/v1 cargo run -- sniff
+
+# Consume mode: archive to zstd + purge originals
+cargo run -- sniff --consume --output ./log-archive
+
+# Add custom log sources
+cargo run -- sniff --sources "/var/log/myapp.log,/opt/service/logs"
 ```
 
 ### Use as Library
@@ -106,6 +130,12 @@ docker-compose logs -f stackdog
 │  │ • Docker    │  │   Detection │  │ • Auto-response         │  │
 │  │   Events    │  │ • Scoring   │  │ • Alerting              │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────────┐│
+│  │  Log Sniffing                                               ││
+│  │  • Auto-discovery (system logs, Docker, custom paths)       ││
+│  │  • AI summarization (OpenAI/Ollama/Candle)                  ││
+│  │  • zstd compression, dedup, log purge                       ││
+│  └──────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -118,6 +148,7 @@ docker-compose logs -f stackdog
 | **Alerting** | Alert management & notifications | ✅ Complete |
 | **Firewall** | nftables/iptables integration | ✅ Complete |
 | **Collectors** | eBPF syscall monitoring | ✅ Infrastructure |
+| **Log Sniffing** | Log discovery, AI analysis, archival | ✅ Complete |
 | **ML** | Candle-based anomaly detection | 🚧 In progress |
 
 ---
@@ -251,6 +282,44 @@ let action = ResponseAction::new(
 - Send alerts
 - Custom commands
 
+### 7. Log Sniffing & AI Analysis
+
+```bash
+# Discover all log sources and analyze with AI
+stackdog sniff --once --ai-provider openai
+
+# Continuous daemon with local Ollama
+stackdog sniff --interval 60 --ai-provider openai
+
+# Consume: archive (zstd) + purge originals to free disk
+stackdog sniff --consume --output ./archive
+
+# Add custom sources alongside auto-discovered ones
+stackdog sniff --sources "/app/logs/api.log,/app/logs/worker.log"
+```
+
+**Capabilities:**
+- 🔍 Auto-discovers system logs, Docker container logs, and custom paths
+- 🤖 AI summarization via OpenAI, Ollama, or local pattern analysis
+- 📦 Deduplicates and compresses logs with zstd
+- 🗑️ Optional `--consume` mode: archives then purges originals
+- 📊 Incremental reading — tracks byte offsets, never re-reads old entries
+- 🚨 Anomaly alerts routed to configured notification channels
+
+**REST API:**
+```bash
+# List discovered sources
+curl http://localhost:5000/api/logs/sources
+
+# Add a custom source
+curl -X POST http://localhost:5000/api/logs/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"path": "/var/log/myapp.log", "name": "My App"}'
+
+# View AI summaries
+curl http://localhost:5000/api/logs/summaries?source_id=myapp
+```
+
 ---
 
 ## 📦 Installation
@@ -297,6 +366,7 @@ cargo test --lib
 cargo test --lib -- events::
 cargo test --lib -- rules::
 cargo test --lib -- alerting::
+cargo test --lib -- sniff::
 ```
 
 ---
@@ -404,11 +474,21 @@ cargo doc --open
 ```
 stackdog/
 ├── src/
+│   ├── cli.rs           # Clap CLI (serve/sniff subcommands)
 │   ├── events/          # Event types & validation
 │   ├── rules/           # Rule engine & signatures
 │   ├── alerting/        # Alerts & notifications
 │   ├── firewall/        # nftables/iptables
 │   ├── collectors/      # eBPF collectors
+│   ├── sniff/           # Log sniffing & AI analysis
+│   │   ├── config.rs    # SniffConfig (env + CLI)
+│   │   ├── discovery.rs # Log source auto-discovery
+│   │   ├── reader.rs    # File/Docker/Journald readers
+│   │   ├── analyzer.rs  # AI summarization (OpenAI + pattern)
+│   │   ├── consumer.rs  # zstd compression, dedup, purge
+│   │   └── reporter.rs  # Alert routing
+│   ├── api/             # REST API endpoints
+│   ├── database/        # SQLite + repositories
 │   ├── ml/              # ML infrastructure
 │   └── config/          # Configuration
 ├── examples/            # Usage examples
@@ -507,11 +587,12 @@ Look for issues labeled:
 - ✅ Signature detection (TASK-006)
 - ✅ Alert system (TASK-007)
 - ✅ Firewall integration (TASK-008)
+- ✅ Log sniffing & AI analysis (TASK-009)
 
 ### Upcoming Tasks
 
-- ⏳ Web dashboard (TASK-009)
 - ⏳ ML anomaly detection (TASK-010)
+- ⏳ Web dashboard (TASK-011)
 - ⏳ Kubernetes support (BACKLOG)
 
 ---
