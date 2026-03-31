@@ -54,7 +54,10 @@ fn test_container_id_detection_format() {
     {
         let detector = detector.expect("Failed to create detector");
         // Test with a known container ID format
-        let valid_ids = vec!["abc123def456", "abc123def456789012345678901234567890"];
+        let valid_ids = vec![
+            "abc123def456",
+            "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        ];
 
         for id in valid_ids {
             let result = detector.validate_container_id(id);
