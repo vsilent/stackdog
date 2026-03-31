@@ -7,8 +7,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::fs::File;
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 
 /// A single log entry from any source
@@ -56,11 +56,19 @@ impl FileLogReader {
 
         let file = File::open(path)?;
         let file_len = file.metadata()?.len();
-        log::debug!("Reading {} (size: {} bytes, offset: {})", self.path, file_len, self.offset);
+        log::debug!(
+            "Reading {} (size: {} bytes, offset: {})",
+            self.path,
+            file_len,
+            self.offset
+        );
 
         // Handle file truncation (log rotation)
         if self.offset > file_len {
-            log::debug!("File truncated (rotation?), resetting offset from {} to 0", self.offset);
+            log::debug!(
+                "File truncated (rotation?), resetting offset from {} to 0",
+                self.offset
+            );
             self.offset = 0;
         }
 
@@ -77,16 +85,19 @@ impl FileLogReader {
                     source_id: self.source_id.clone(),
                     timestamp: Utc::now(),
                     line: trimmed,
-                    metadata: HashMap::from([
-                        ("source_path".into(), self.path.clone()),
-                    ]),
+                    metadata: HashMap::from([("source_path".into(), self.path.clone())]),
                 });
             }
             line.clear();
         }
 
         self.offset = reader.stream_position()?;
-        log::debug!("Read {} entries from {}, new offset: {}", entries.len(), self.path, self.offset);
+        log::debug!(
+            "Read {} entries from {}, new offset: {}",
+            entries.len(),
+            self.path,
+            self.offset
+        );
         Ok(entries)
     }
 }
@@ -126,8 +137,8 @@ impl DockerLogReader {
 #[async_trait]
 impl LogReader for DockerLogReader {
     async fn read_new_entries(&mut self) -> Result<Vec<LogEntry>> {
-        use bollard::Docker;
         use bollard::container::LogsOptions;
+        use bollard::Docker;
         use futures_util::stream::StreamExt;
 
         let docker = match Docker::connect_with_local_defaults() {
@@ -143,7 +154,11 @@ impl LogReader for DockerLogReader {
             stderr: true,
             since: self.last_timestamp.unwrap_or(0),
             timestamps: true,
-            tail: if self.last_timestamp.is_none() { "100".to_string() } else { "all".to_string() },
+            tail: if self.last_timestamp.is_none() {
+                "100".to_string()
+            } else {
+                "all".to_string()
+            },
             ..Default::default()
         };
 
@@ -160,9 +175,10 @@ impl LogReader for DockerLogReader {
                             source_id: self.source_id.clone(),
                             timestamp: Utc::now(),
                             line: trimmed,
-                            metadata: HashMap::from([
-                                ("container_id".into(), self.container_id.clone()),
-                            ]),
+                            metadata: HashMap::from([(
+                                "container_id".into(),
+                                self.container_id.clone(),
+                            )]),
                         });
                     }
                 }
@@ -211,8 +227,10 @@ impl LogReader for JournaldReader {
 
         let mut cmd = Command::new("journalctl");
         cmd.arg("--no-pager")
-            .arg("-o").arg("short-iso")
-            .arg("-n").arg("200");
+            .arg("-o")
+            .arg("short-iso")
+            .arg("-n")
+            .arg("200");
 
         if let Some(ref cursor) = self.cursor {
             cmd.arg("--after-cursor").arg(cursor);
@@ -235,9 +253,7 @@ impl LogReader for JournaldReader {
                     source_id: self.source_id.clone(),
                     timestamp: Utc::now(),
                     line: trimmed,
-                    metadata: HashMap::from([
-                        ("source".into(), "journald".into()),
-                    ]),
+                    metadata: HashMap::from([("source".into(), "journald".into())]),
                 });
             }
         }
@@ -290,11 +306,7 @@ mod tests {
             writeln!(f, "line 3").unwrap();
         }
 
-        let mut reader = FileLogReader::new(
-            "test".into(),
-            path.to_string_lossy().to_string(),
-            0,
-        );
+        let mut reader = FileLogReader::new("test".into(), path.to_string_lossy().to_string(), 0);
         let entries = reader.read_new_entries().await.unwrap();
         assert_eq!(entries.len(), 3);
         assert_eq!(entries[0].line, "line 1");
@@ -325,7 +337,10 @@ mod tests {
 
         // Append new lines
         {
-            let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
             writeln!(f, "line C").unwrap();
         }
 
@@ -382,11 +397,7 @@ mod tests {
             writeln!(f, "line 3").unwrap();
         }
 
-        let mut reader = FileLogReader::new(
-            "empty".into(),
-            path.to_string_lossy().to_string(),
-            0,
-        );
+        let mut reader = FileLogReader::new("empty".into(), path.to_string_lossy().to_string(), 0);
         let entries = reader.read_new_entries().await.unwrap();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].line, "line 1");

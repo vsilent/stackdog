@@ -183,17 +183,32 @@ mod tests {
 
     #[test]
     fn test_log_source_type_display() {
-        assert_eq!(LogSourceType::DockerContainer.to_string(), "DockerContainer");
+        assert_eq!(
+            LogSourceType::DockerContainer.to_string(),
+            "DockerContainer"
+        );
         assert_eq!(LogSourceType::SystemLog.to_string(), "SystemLog");
         assert_eq!(LogSourceType::CustomFile.to_string(), "CustomFile");
     }
 
     #[test]
     fn test_log_source_type_from_str() {
-        assert_eq!(LogSourceType::from_str("DockerContainer"), LogSourceType::DockerContainer);
-        assert_eq!(LogSourceType::from_str("SystemLog"), LogSourceType::SystemLog);
-        assert_eq!(LogSourceType::from_str("CustomFile"), LogSourceType::CustomFile);
-        assert_eq!(LogSourceType::from_str("anything"), LogSourceType::CustomFile);
+        assert_eq!(
+            LogSourceType::from_str("DockerContainer"),
+            LogSourceType::DockerContainer
+        );
+        assert_eq!(
+            LogSourceType::from_str("SystemLog"),
+            LogSourceType::SystemLog
+        );
+        assert_eq!(
+            LogSourceType::from_str("CustomFile"),
+            LogSourceType::CustomFile
+        );
+        assert_eq!(
+            LogSourceType::from_str("anything"),
+            LogSourceType::CustomFile
+        );
     }
 
     #[test]
@@ -234,10 +249,7 @@ mod tests {
         writeln!(tmp, "log").unwrap();
         let existing = tmp.path().to_string_lossy().to_string();
 
-        let sources = discover_custom_sources(&[
-            existing.clone(),
-            "/does/not/exist.log".into(),
-        ]);
+        let sources = discover_custom_sources(&[existing.clone(), "/does/not/exist.log".into()]);
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].path_or_id, existing);
     }

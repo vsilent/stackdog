@@ -2,6 +2,6 @@
 //!
 //! These tests verify that multiple components work together correctly.
 
+mod collectors;
 mod events;
 mod structure;
-mod collectors;

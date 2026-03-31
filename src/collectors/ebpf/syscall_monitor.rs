@@ -2,11 +2,11 @@
 //!
 //! Monitors syscalls using eBPF tracepoints
 
-use anyhow::{Result, Context};
-use crate::events::syscall::{SyscallEvent, SyscallType};
-use crate::collectors::ebpf::ring_buffer::EventRingBuffer;
-use crate::collectors::ebpf::enrichment::EventEnricher;
 use crate::collectors::ebpf::container::ContainerDetector;
+use crate::collectors::ebpf::enrichment::EventEnricher;
+use crate::collectors::ebpf::ring_buffer::EventRingBuffer;
+use crate::events::syscall::{SyscallEvent, SyscallType};
+use anyhow::{Context, Result};
 
 /// Syscall monitor using eBPF
 pub struct SyscallMonitor {
@@ -27,14 +27,13 @@ impl SyscallMonitor {
     pub fn new() -> Result<Self> {
         #[cfg(all(target_os = "linux", feature = "ebpf"))]
         {
-            let loader = super::loader::EbpfLoader::new()
-                .context("Failed to create eBPF loader")?;
-            
-            let enricher = EventEnricher::new()
-                .context("Failed to create event enricher")?;
-            
+            let loader =
+                super::loader::EbpfLoader::new().context("Failed to create eBPF loader")?;
+
+            let enricher = EventEnricher::new().context("Failed to create event enricher")?;
+
             let container_detector = ContainerDetector::new().ok();
-            
+
             Ok(Self {
                 loader: Some(loader),
                 ring_buf: None,
@@ -44,13 +43,13 @@ impl SyscallMonitor {
                 container_detector,
             })
         }
-        
+
         #[cfg(not(all(target_os = "linux", feature = "ebpf")))]
         {
             anyhow::bail!("SyscallMonitor is only available on Linux with eBPF feature");
         }
     }
-    
+
     /// Start monitoring syscalls
     pub fn start(&mut self) -> Result<()> {
         #[cfg(all(target_os = "linux", feature = "ebpf"))]
@@ -67,8 +66,12 @@ impl SyscallMonitor {
                             log::warn!("Some eBPF programs failed to attach: {}", e);
                         });
                         match loader.take_ring_buf() {
-                            Ok(rb) => { self.ring_buf = Some(rb); }
-                            Err(e) => { log::warn!("Failed to get eBPF ring buffer: {}", e); }
+                            Ok(rb) => {
+                                self.ring_buf = Some(rb);
+                            }
+                            Err(e) => {
+                                log::warn!("Failed to get eBPF ring buffer: {}", e);
+                            }
                         }
                     }
                     Err(e) => {
@@ -77,7 +80,8 @@ impl SyscallMonitor {
                              Running without kernel event collection — \
                              build the eBPF crate first with `cargo build --release` \
                              in the ebpf/ directory.",
-                            ebpf_path, e
+                            ebpf_path,
+                            e
                         );
                     }
                 }
@@ -93,7 +97,7 @@ impl SyscallMonitor {
             anyhow::bail!("SyscallMonitor is only available on Linux");
         }
     }
-    
+
     /// Stop monitoring syscalls
     pub fn stop(&mut self) -> Result<()> {
         self.running = false;
@@ -105,12 +109,12 @@ impl SyscallMonitor {
         log::info!("Syscall monitor stopped");
         Ok(())
     }
-    
+
     /// Check if monitor is running
     pub fn is_running(&self) -> bool {
         self.running
     }
-    
+
     /// Poll for new events
     pub fn poll_events(&mut self) -> Vec<SyscallEvent> {
         #[cfg(all(target_os = "linux", feature = "ebpf"))]
@@ -155,13 +159,13 @@ impl SyscallMonitor {
     pub fn peek_events(&self) -> &[SyscallEvent] {
         self.event_buffer.events()
     }
-    
+
     /// Get the eBPF loader
     #[cfg(all(target_os = "linux", feature = "ebpf"))]
     pub fn loader(&self) -> Option<&super::loader::EbpfLoader> {
         self.loader.as_ref()
     }
-    
+
     /// Get container ID for current process
     pub fn current_container_id(&mut self) -> Option<String> {
         #[cfg(target_os = "linux")]
@@ -172,7 +176,7 @@ impl SyscallMonitor {
         }
         None
     }
-    
+
     /// Detect container for a specific PID
     pub fn detect_container_for_pid(&mut self, pid: u32) -> Option<String> {
         #[cfg(target_os = "linux")]
@@ -183,12 +187,12 @@ impl SyscallMonitor {
         }
         None
     }
-    
+
     /// Get event count
     pub fn event_count(&self) -> usize {
         self.event_buffer.len()
     }
-    
+
     /// Clear event buffer
     pub fn clear_events(&mut self) {
         self.event_buffer.clear();
@@ -212,33 +216,33 @@ impl SyscallMonitor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_syscall_monitor_creation() {
         let result = SyscallMonitor::new();
-        
+
         #[cfg(all(target_os = "linux", feature = "ebpf"))]
         assert!(result.is_ok());
-        
+
         #[cfg(not(all(target_os = "linux", feature = "ebpf")))]
         assert!(result.is_err());
     }
-    
+
     #[test]
     fn test_syscall_monitor_not_running_initially() {
         let monitor = SyscallMonitor::new();
-        
+
         #[cfg(all(target_os = "linux", feature = "ebpf"))]
         {
             let monitor = monitor.unwrap();
             assert!(!monitor.is_running());
         }
     }
-    
+
     #[test]
     fn test_poll_events_empty_when_not_running() {
         let mut monitor = SyscallMonitor::new();
-        
+
         #[cfg(all(target_os = "linux", feature = "ebpf"))]
         {
             let mut monitor = monitor.unwrap();
@@ -246,11 +250,11 @@ mod tests {
             assert!(events.is_empty());
         }
     }
-    
+
     #[test]
     fn test_event_count() {
         let mut monitor = SyscallMonitor::new();
-        
+
         #[cfg(all(target_os = "linux", feature = "ebpf"))]
         {
             let mut monitor = monitor.unwrap();

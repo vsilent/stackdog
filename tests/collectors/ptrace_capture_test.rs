@@ -11,19 +11,18 @@ mod linux_tests {
     #[test]
     #[ignore = "requires root and eBPF support"]
     fn test_ptrace_event_captured_on_trace_attempt() {
-        let mut monitor = SyscallMonitor::new()
-            .expect("Failed to create monitor");
-        
+        let mut monitor = SyscallMonitor::new().expect("Failed to create monitor");
+
         monitor.start().expect("Failed to start monitor");
-        
+
         // Note: Actually calling ptrace requires special setup
         // For now, we just verify the monitor doesn't crash
         // and can detect ptrace syscalls if they occur
-        
+
         std::thread::sleep(Duration::from_millis(100));
-        
+
         let events = monitor.poll_events();
-        
+
         // Just verify monitor works without crashing
         assert!(true, "Monitor should handle ptrace detection gracefully");
     }
@@ -31,15 +30,14 @@ mod linux_tests {
     #[test]
     #[ignore = "requires root and eBPF support"]
     fn test_ptrace_event_contains_target_pid() {
-        let mut monitor = SyscallMonitor::new()
-            .expect("Failed to create monitor");
-        
+        let mut monitor = SyscallMonitor::new().expect("Failed to create monitor");
+
         monitor.start().expect("Failed to start monitor");
-        
+
         std::thread::sleep(Duration::from_millis(100));
-        
+
         let events = monitor.poll_events();
-        
+
         // Verify structure ready for ptrace events
         assert!(true);
     }
@@ -47,18 +45,17 @@ mod linux_tests {
     #[test]
     #[ignore = "requires root and eBPF support"]
     fn test_ptrace_event_security_alert() {
-        let mut monitor = SyscallMonitor::new()
-            .expect("Failed to create monitor");
-        
+        let mut monitor = SyscallMonitor::new().expect("Failed to create monitor");
+
         monitor.start().expect("Failed to start monitor");
-        
+
         // Ptrace is often used by debuggers and malware
         // Verify we can detect it
-        
+
         std::thread::sleep(Duration::from_millis(100));
-        
+
         let events = monitor.poll_events();
-        
+
         // Just verify monitor is working
         assert!(true);
     }

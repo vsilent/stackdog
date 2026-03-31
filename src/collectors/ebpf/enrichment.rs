@@ -2,8 +2,8 @@
 //!
 //! Enriches syscall events with additional context (container ID, process info, etc.)
 
-use anyhow::Result;
 use crate::events::syscall::SyscallEvent;
+use anyhow::Result;
 
 /// Event enricher
 pub struct EventEnricher {
@@ -25,16 +25,16 @@ impl EventEnricher {
             process_cache: std::collections::HashMap::new(),
         })
     }
-    
+
     /// Enrich an event with additional information
     pub fn enrich(&mut self, event: &mut SyscallEvent) -> Result<()> {
         // Add timestamp normalization (already done in event creation)
         // Add process information
         self.enrich_process_info(event);
-        
+
         Ok(())
     }
-    
+
     /// Enrich event with process information
     fn enrich_process_info(&mut self, event: &mut SyscallEvent) {
         // Try to get process comm if not already set
@@ -42,7 +42,7 @@ impl EventEnricher {
             event.comm = self.get_process_comm(event.pid);
         }
     }
-    
+
     /// Get parent PID for a process
     pub fn get_parent_pid(&self, pid: u32) -> Option<u32> {
         #[cfg(target_os = "linux")]
@@ -59,10 +59,10 @@ impl EventEnricher {
                 }
             }
         }
-        
+
         None
     }
-    
+
     /// Get process command name
     pub fn get_process_comm(&self, pid: u32) -> Option<String> {
         #[cfg(target_os = "linux")]
@@ -72,7 +72,7 @@ impl EventEnricher {
             if let Ok(content) = std::fs::read_to_string(&comm_path) {
                 return Some(content.trim().to_string());
             }
-            
+
             // Alternative: read from /proc/[pid]/cmdline
             let cmdline_path = format!("/proc/{}/cmdline", pid);
             if let Ok(content) = std::fs::read_to_string(&cmdline_path) {
@@ -86,10 +86,10 @@ impl EventEnricher {
                 }
             }
         }
-        
+
         None
     }
-    
+
     /// Get process executable path
     pub fn get_process_exe(&self, pid: u32) -> Option<String> {
         #[cfg(target_os = "linux")]
@@ -100,10 +100,10 @@ impl EventEnricher {
                 return path.to_str().map(|s| s.to_string());
             }
         }
-        
+
         None
     }
-    
+
     /// Get process working directory
     pub fn get_process_cwd(&self, pid: u32) -> Option<String> {
         #[cfg(target_os = "linux")]
@@ -114,7 +114,7 @@ impl EventEnricher {
                 return path.to_str().map(|s| s.to_string());
             }
         }
-        
+
         None
     }
 }
@@ -139,7 +139,7 @@ mod tests {
         let enricher = EventEnricher::new();
         assert!(enricher.is_ok());
     }
-    
+
     #[test]
     fn test_normalize_timestamp() {
         let now = Utc::now();

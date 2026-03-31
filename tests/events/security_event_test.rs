@@ -4,22 +4,17 @@
 
 use chrono::Utc;
 use stackdog::events::security::{
-    SecurityEvent, NetworkEvent, ContainerEvent, ContainerEventType,
-    AlertEvent, AlertType, AlertSeverity,
+    AlertEvent, AlertSeverity, AlertType, ContainerEvent, ContainerEventType, NetworkEvent,
+    SecurityEvent,
 };
 use stackdog::events::syscall::{SyscallEvent, SyscallType};
 
 #[test]
 fn test_security_event_syscall_variant() {
-    let syscall_event = SyscallEvent::new(
-        1234,
-        1000,
-        SyscallType::Execve,
-        Utc::now(),
-    );
-    
+    let syscall_event = SyscallEvent::new(1234, 1000, SyscallType::Execve, Utc::now());
+
     let security_event = SecurityEvent::Syscall(syscall_event);
-    
+
     // Test that we can match on the variant
     match security_event {
         SecurityEvent::Syscall(e) => {
@@ -41,9 +36,9 @@ fn test_security_event_network_variant() {
         timestamp: Utc::now(),
         container_id: Some("abc123".to_string()),
     };
-    
+
     let security_event = SecurityEvent::Network(network_event);
-    
+
     match security_event {
         SecurityEvent::Network(e) => {
             assert_eq!(e.src_ip, "192.168.1.1");
@@ -61,9 +56,9 @@ fn test_security_event_container_variant() {
         timestamp: Utc::now(),
         details: Some("Container started".to_string()),
     };
-    
+
     let security_event = SecurityEvent::Container(container_event);
-    
+
     match security_event {
         SecurityEvent::Container(e) => {
             assert_eq!(e.container_id, "abc123");
@@ -82,9 +77,9 @@ fn test_security_event_alert_variant() {
         timestamp: Utc::now(),
         source_event_id: Some("evt_123".to_string()),
     };
-    
+
     let security_event = SecurityEvent::Alert(alert_event);
-    
+
     match security_event {
         SecurityEvent::Alert(e) => {
             assert_eq!(e.alert_type, AlertType::ThreatDetected);
@@ -132,7 +127,7 @@ fn test_network_event_clone() {
         timestamp: Utc::now(),
         container_id: Some("abc123".to_string()),
     };
-    
+
     let cloned = event.clone();
     assert_eq!(event.src_ip, cloned.src_ip);
     assert_eq!(event.dst_port, cloned.dst_port);
@@ -146,7 +141,7 @@ fn test_container_event_clone() {
         timestamp: Utc::now(),
         details: None,
     };
-    
+
     let cloned = event.clone();
     assert_eq!(event.container_id, cloned.container_id);
     assert_eq!(event.event_type, cloned.event_type);
@@ -161,7 +156,7 @@ fn test_alert_event_debug() {
         timestamp: Utc::now(),
         source_event_id: None,
     };
-    
+
     let debug_str = format!("{:?}", event);
     assert!(debug_str.contains("AlertEvent"));
     assert!(debug_str.contains("ThreatDetected"));

@@ -2,8 +2,8 @@
 //!
 //! Pre-defined rules for common security scenarios
 
-use crate::events::syscall::{SyscallEvent, SyscallType};
 use crate::events::security::SecurityEvent;
+use crate::events::syscall::{SyscallEvent, SyscallType};
 use crate::rules::rule::{Rule, RuleResult};
 
 /// Syscall allowlist rule
@@ -30,11 +30,11 @@ impl Rule for SyscallAllowlistRule {
             RuleResult::NoMatch
         }
     }
-    
+
     fn name(&self) -> &str {
         "syscall_allowlist"
     }
-    
+
     fn priority(&self) -> u32 {
         50
     }
@@ -56,7 +56,7 @@ impl Rule for SyscallBlocklistRule {
     fn evaluate(&self, event: &SecurityEvent) -> RuleResult {
         if let SecurityEvent::Syscall(syscall_event) = event {
             if self.blocked.contains(&syscall_event.syscall_type) {
-                RuleResult::Match  // Match means violation detected
+                RuleResult::Match // Match means violation detected
             } else {
                 RuleResult::NoMatch
             }
@@ -64,13 +64,13 @@ impl Rule for SyscallBlocklistRule {
             RuleResult::NoMatch
         }
     }
-    
+
     fn name(&self) -> &str {
         "syscall_blocklist"
     }
-    
+
     fn priority(&self) -> u32 {
-        10  // High priority for security violations
+        10 // High priority for security violations
     }
 }
 
@@ -106,11 +106,11 @@ impl Rule for ProcessExecutionRule {
             RuleResult::NoMatch
         }
     }
-    
+
     fn name(&self) -> &str {
         "process_execution"
     }
-    
+
     fn priority(&self) -> u32 {
         30
     }
@@ -149,11 +149,11 @@ impl Rule for NetworkConnectionRule {
             RuleResult::NoMatch
         }
     }
-    
+
     fn name(&self) -> &str {
         "network_connection"
     }
-    
+
     fn priority(&self) -> u32 {
         40
     }
@@ -192,11 +192,11 @@ impl Rule for FileAccessRule {
             RuleResult::NoMatch
         }
     }
-    
+
     fn name(&self) -> &str {
         "file_access"
     }
-    
+
     fn priority(&self) -> u32 {
         60
     }
@@ -206,21 +206,27 @@ impl Rule for FileAccessRule {
 mod tests {
     use super::*;
     use chrono::Utc;
-    
+
     #[test]
     fn test_allowlist_rule() {
         let rule = SyscallAllowlistRule::new(vec![SyscallType::Execve]);
         let event = SecurityEvent::Syscall(SyscallEvent::new(
-            1234, 1000, SyscallType::Execve, Utc::now(),
+            1234,
+            1000,
+            SyscallType::Execve,
+            Utc::now(),
         ));
         assert!(rule.evaluate(&event).is_match());
     }
-    
+
     #[test]
     fn test_blocklist_rule() {
         let rule = SyscallBlocklistRule::new(vec![SyscallType::Ptrace]);
         let event = SecurityEvent::Syscall(SyscallEvent::new(
-            1234, 1000, SyscallType::Ptrace, Utc::now(),
+            1234,
+            1000,
+            SyscallType::Ptrace,
+            Utc::now(),
         ));
         assert!(rule.evaluate(&event).is_match());
     }

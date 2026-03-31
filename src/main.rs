@@ -10,33 +10,33 @@ extern crate log;
 extern crate serde_json;
 extern crate bollard;
 
-extern crate actix_rt;
 extern crate actix_cors;
+extern crate actix_rt;
 extern crate actix_web;
-extern crate env_logger;
 extern crate dotenv;
+extern crate env_logger;
 extern crate tracing;
 extern crate tracing_subscriber;
 
-mod config;
+mod alerting;
 mod api;
+mod cli;
+mod config;
 mod database;
 mod docker;
 mod events;
-mod rules;
-mod alerting;
 mod models;
-mod cli;
+mod rules;
 mod sniff;
 
-use std::{io, env};
-use actix_web::{HttpServer, App, web};
 use actix_cors::Cors;
+use actix_web::{web, App, HttpServer};
 use clap::Parser;
-use tracing::{Level, info};
-use tracing_subscriber::FmtSubscriber;
-use database::{create_pool, init_database};
 use cli::{Cli, Command};
+use database::{create_pool, init_database};
+use std::{env, io};
+use tracing::{info, Level};
+use tracing_subscriber::FmtSubscriber;
 
 #[actix_rt::main]
 async fn main() -> io::Result<()> {
@@ -52,28 +52,52 @@ async fn main() -> io::Result<()> {
         env::set_var("RUST_LOG", "stackdog=info,actix_web=info");
     }
     env_logger::init();
-    
+
     // Setup tracing — respect RUST_LOG for level
-    let max_level = if env::var("RUST_LOG").map(|v| v.contains("debug")).unwrap_or(false) {
+    let max_level = if env::var("RUST_LOG")
+        .map(|v| v.contains("debug"))
+        .unwrap_or(false)
+    {
         Level::DEBUG
-    } else if env::var("RUST_LOG").map(|v| v.contains("trace")).unwrap_or(false) {
+    } else if env::var("RUST_LOG")
+        .map(|v| v.contains("trace"))
+        .unwrap_or(false)
+    {
         Level::TRACE
     } else {
         Level::INFO
     };
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(max_level)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("setting default subscriber failed");
+    let subscriber = FmtSubscriber::builder().with_max_level(max_level).finish();
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     info!("🐕 Stackdog Security starting...");
     info!("Platform: {}", std::env::consts::OS);
     info!("Architecture: {}", std::env::consts::ARCH);
 
     match cli.command {
-        Some(Command::Sniff { once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url, slack_webhook }) => {
-            run_sniff(once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url, slack_webhook).await
+        Some(Command::Sniff {
+            once,
+            consume,
+            output,
+            sources,
+            interval,
+            ai_provider,
+            ai_model,
+            ai_api_url,
+            slack_webhook,
+        }) => {
+            run_sniff(
+                once,
+                consume,
+                output,
+                sources,
+                interval,
+                ai_provider,
+                ai_model,
+                ai_api_url,
+                slack_webhook,
+            )
+            .await
         }
         // Default: serve (backward compatible)
         Some(Command::Serve) | None => run_serve().await,
@@ -84,19 +108,19 @@ async fn run_serve() -> io::Result<()> {
     let app_host = env::var("APP_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let app_port = env::var("APP_PORT").unwrap_or_else(|_| "5000".to_string());
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "./stackdog.db".to_string());
-    
+
     info!("Host: {}", app_host);
     info!("Port: {}", app_port);
     info!("Database: {}", database_url);
-    
+
     let app_url = format!("{}:{}", &app_host, &app_port);
-    
+
     // Initialize database
     info!("Initializing database...");
     let pool = create_pool(&database_url).expect("Failed to create database pool");
     init_database(&pool).expect("Failed to initialize database");
     info!("Database initialized successfully");
-    
+
     info!("🎉 Stackdog Security ready!");
     info!("");
     info!("API Endpoints:");
@@ -115,12 +139,12 @@ async fn run_serve() -> io::Result<()> {
     info!("");
     info!("Web Dashboard: http://{}:{}", app_host, app_port);
     info!("");
-    
+
     // Start HTTP server
     info!("Starting HTTP server on {}...", app_url);
-    
+
     let pool_data = web::Data::new(pool);
-    
+
     HttpServer::new(move || {
         App::new()
             .app_data(pool_data.clone())
@@ -157,7 +181,14 @@ async fn run_sniff(
     );
 
     info!("🔍 Stackdog Sniff starting...");
-    info!("Mode: {}", if config.once { "one-shot" } else { "continuous" });
+    info!(
+        "Mode: {}",
+        if config.once {
+            "one-shot"
+        } else {
+            "continuous"
+        }
+    );
     info!("Consume: {}", config.consume);
     info!("Output: {}", config.output_dir.display());
     info!("Interval: {}s", config.interval_secs);
@@ -171,7 +202,8 @@ async fn run_sniff(
     let orchestrator = sniff::SniffOrchestrator::new(config)
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-    orchestrator.run().await
+    orchestrator
+        .run()
+        .await
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
-

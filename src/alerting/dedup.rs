@@ -20,39 +20,39 @@ impl DedupConfig {
     pub fn default() -> Self {
         Self {
             enabled: true,
-            window_seconds: 300,  // 5 minutes
+            window_seconds: 300, // 5 minutes
             aggregation: true,
         }
     }
-    
+
     /// Set enabled
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
-    
+
     /// Set window seconds
     pub fn with_window_seconds(mut self, seconds: u64) -> Self {
         self.window_seconds = seconds;
         self
     }
-    
+
     /// Set aggregation
     pub fn with_aggregation(mut self, aggregation: bool) -> Self {
         self.aggregation = aggregation;
         self
     }
-    
+
     /// Check if enabled
     pub fn enabled(&self) -> bool {
         self.enabled
     }
-    
+
     /// Get window seconds
     pub fn window_seconds(&self) -> u64 {
         self.window_seconds
     }
-    
+
     /// Check if aggregation enabled
     pub fn aggregation_enabled(&self) -> bool {
         self.aggregation
@@ -74,7 +74,7 @@ impl Fingerprint {
     pub fn new(value: String) -> Self {
         Self(value)
     }
-    
+
     /// Get value
     pub fn value(&self) -> &str {
         &self.0
@@ -124,21 +124,21 @@ impl AlertDeduplicator {
             stats: DedupStats::default(),
         }
     }
-    
+
     /// Calculate fingerprint for alert
     pub fn calculate_fingerprint(&self, alert: &Alert) -> Fingerprint {
         Fingerprint::new(alert.fingerprint())
     }
-    
+
     /// Check if alert is duplicate
     pub fn is_duplicate(&mut self, alert: &Alert) -> bool {
         if !self.config.enabled {
             return false;
         }
-        
+
         let fingerprint = self.calculate_fingerprint(alert);
         let now = Utc::now();
-        
+
         if let Some(entry) = self.fingerprints.get(&fingerprint) {
             // Check if within window
             let elapsed = now - entry.last_seen;
@@ -146,7 +146,7 @@ impl AlertDeduplicator {
                 return true;
             }
         }
-        
+
         // Not a duplicate or window expired
         self.fingerprints.insert(
             fingerprint,
@@ -156,14 +156,14 @@ impl AlertDeduplicator {
                 count: 1,
             },
         );
-        
+
         false
     }
-    
+
     /// Check alert and return result with count
     pub fn check(&mut self, alert: &Alert) -> DedupResult {
         self.stats.total_checked += 1;
-        
+
         if !self.config.enabled {
             return DedupResult {
                 is_duplicate: false,
@@ -171,19 +171,19 @@ impl AlertDeduplicator {
                 first_seen: Utc::now(),
             };
         }
-        
+
         let fingerprint = self.calculate_fingerprint(alert);
         let now = Utc::now();
-        
+
         if let Some(entry) = self.fingerprints.get_mut(&fingerprint) {
             let elapsed = now - entry.last_seen;
-            
+
             if elapsed.num_seconds() as u64 <= self.config.window_seconds {
                 // Duplicate within window
                 entry.count += 1;
                 entry.last_seen = now;
                 self.stats.duplicates_found += 1;
-                
+
                 return DedupResult {
                     is_duplicate: true,
                     count: entry.count,
@@ -208,14 +208,14 @@ impl AlertDeduplicator {
                 },
             );
         }
-        
+
         DedupResult {
             is_duplicate: false,
             count: 1,
             first_seen: now,
         }
     }
-    
+
     /// Get statistics
     pub fn get_stats(&self) -> DedupStatsPublic {
         DedupStatsPublic {
@@ -223,12 +223,12 @@ impl AlertDeduplicator {
             duplicates_found: self.stats.duplicates_found,
         }
     }
-    
+
     /// Clear old fingerprints
     pub fn clear_expired(&mut self) {
         let now = Utc::now();
         let window = self.config.window_seconds;
-        
+
         self.fingerprints.retain(|_, entry| {
             let elapsed = now - entry.last_seen;
             elapsed.num_seconds() as u64 <= window
@@ -246,14 +246,14 @@ pub struct DedupStatsPublic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_dedup_config_default() {
         let config = DedupConfig::default();
         assert!(config.enabled());
         assert_eq!(config.window_seconds(), 300);
     }
-    
+
     #[test]
     fn test_fingerprint_display() {
         let fp = Fingerprint::new("test".to_string());

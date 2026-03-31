@@ -4,7 +4,7 @@
 //! - OpenAI-compatible API (works with OpenAI, Ollama, vLLM, etc.)
 //! - Local Candle inference (requires `ml` feature)
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -173,14 +173,17 @@ fn parse_severity(s: &str) -> AnomalySeverity {
 
 /// Parse the LLM JSON response into a LogSummary
 fn parse_llm_response(source_id: &str, entries: &[LogEntry], raw_json: &str) -> Result<LogSummary> {
-    log::debug!("Parsing LLM response ({} bytes) for source {}", raw_json.len(), source_id);
+    log::debug!(
+        "Parsing LLM response ({} bytes) for source {}",
+        raw_json.len(),
+        source_id
+    );
     log::trace!("Raw LLM response:\n{}", raw_json);
 
-    let analysis: LlmAnalysis = serde_json::from_str(raw_json)
-        .context(format!(
-            "Failed to parse LLM response as JSON. Response starts with: {}",
-            &raw_json[..raw_json.len().min(200)]
-        ))?;
+    let analysis: LlmAnalysis = serde_json::from_str(raw_json).context(format!(
+        "Failed to parse LLM response as JSON. Response starts with: {}",
+        &raw_json[..raw_json.len().min(200)]
+    ))?;
 
     log::debug!(
         "LLM analysis parsed — summary: {:?}, errors: {:?}, warnings: {:?}, anomalies: {}",
@@ -190,7 +193,9 @@ fn parse_llm_response(source_id: &str, entries: &[LogEntry], raw_json: &str) -> 
         analysis.anomalies.as_ref().map(|a| a.len()).unwrap_or(0),
     );
 
-    let anomalies = analysis.anomalies.unwrap_or_default()
+    let anomalies = analysis
+        .anomalies
+        .unwrap_or_default()
         .into_iter()
         .map(|a| LogAnomaly {
             description: a.description.unwrap_or_default(),
@@ -206,7 +211,9 @@ fn parse_llm_response(source_id: &str, entries: &[LogEntry], raw_json: &str) -> 
         period_start: start,
         period_end: end,
         total_entries: entries.len(),
-        summary_text: analysis.summary.unwrap_or_else(|| "No summary available".into()),
+        summary_text: analysis
+            .summary
+            .unwrap_or_else(|| "No summary available".into()),
         error_count: analysis.error_count.unwrap_or(0),
         warning_count: analysis.warning_count.unwrap_or(0),
         key_events: analysis.key_events.unwrap_or_default(),
@@ -220,8 +227,16 @@ fn entry_time_range(entries: &[LogEntry]) -> (DateTime<Utc>, DateTime<Utc>) {
         let now = Utc::now();
         return (now, now);
     }
-    let start = entries.iter().map(|e| e.timestamp).min().unwrap_or_else(Utc::now);
-    let end = entries.iter().map(|e| e.timestamp).max().unwrap_or_else(Utc::now);
+    let start = entries
+        .iter()
+        .map(|e| e.timestamp)
+        .min()
+        .unwrap_or_else(Utc::now);
+    let end = entries
+        .iter()
+        .map(|e| e.timestamp)
+        .max()
+        .unwrap_or_else(Utc::now);
     (start, end)
 }
 
@@ -248,7 +263,9 @@ impl LogAnalyzer for OpenAiAnalyzer {
 
         log::debug!(
             "Sending {} entries to AI API (model: {}, url: {})",
-            entries.len(), self.model, self.api_url
+            entries.len(),
+            self.model,
+            self.api_url
         );
         log::trace!("Prompt:\n{}", prompt);
 
@@ -270,11 +287,17 @@ impl LogAnalyzer for OpenAiAnalyzer {
         let url = format!("{}/chat/completions", self.api_url.trim_end_matches('/'));
         log::debug!("POST {}", url);
 
-        let mut req = self.client.post(&url)
+        let mut req = self
+            .client
+            .post(&url)
             .header("Content-Type", "application/json");
 
         if let Some(ref key) = self.api_key {
-            log::debug!("Using API key: {}...{}", &key[..key.len().min(4)], &key[key.len().saturating_sub(4)..]);
+            log::debug!(
+                "Using API key: {}...{}",
+                &key[..key.len().min(4)],
+                &key[key.len().saturating_sub(4)..]
+            );
             req = req.header("Authorization", format!("Bearer {}", key));
         } else {
             log::debug!("No API key configured (using keyless access)");
@@ -295,7 +318,9 @@ impl LogAnalyzer for OpenAiAnalyzer {
             anyhow::bail!("AI API returned status {}: {}", status, body);
         }
 
-        let raw_body = response.text().await
+        let raw_body = response
+            .text()
+            .await
             .context("Failed to read AI API response body")?;
         log::debug!("AI API response body ({} bytes)", raw_body.len());
         log::trace!("AI API raw response:\n{}", raw_body);
@@ -303,12 +328,17 @@ impl LogAnalyzer for OpenAiAnalyzer {
         let completion: ChatCompletionResponse = serde_json::from_str(&raw_body)
             .context("Failed to parse AI API response as ChatCompletion")?;
 
-        let content = completion.choices
+        let content = completion
+            .choices
             .first()
             .map(|c| c.message.content.clone())
             .unwrap_or_default();
 
-        log::debug!("LLM content ({} chars): {}", content.len(), &content[..content.len().min(200)]);
+        log::debug!(
+            "LLM content ({} chars): {}",
+            content.len(),
+            &content[..content.len().min(200)]
+        );
 
         // Extract JSON from response — LLMs often wrap in markdown code fences
         let json_str = extract_json(&content);
@@ -327,10 +357,13 @@ impl PatternAnalyzer {
     }
 
     fn count_pattern(entries: &[LogEntry], patterns: &[&str]) -> usize {
-        entries.iter().filter(|e| {
-            let lower = e.line.to_lowercase();
-            patterns.iter().any(|p| lower.contains(p))
-        }).count()
+        entries
+            .iter()
+            .filter(|e| {
+                let lower = e.line.to_lowercase();
+                patterns.iter().any(|p| lower.contains(p))
+            })
+            .count()
     }
 }
 
@@ -353,13 +386,17 @@ impl LogAnalyzer for PatternAnalyzer {
         }
 
         let source_id = &entries[0].source_id;
-        let error_count = Self::count_pattern(entries, &["error", "err", "fatal", "panic", "exception"]);
+        let error_count =
+            Self::count_pattern(entries, &["error", "err", "fatal", "panic", "exception"]);
         let warning_count = Self::count_pattern(entries, &["warn", "warning"]);
         let (start, end) = entry_time_range(entries);
 
         log::debug!(
             "PatternAnalyzer [{}]: {} entries, {} errors, {} warnings",
-            source_id, entries.len(), error_count, warning_count
+            source_id,
+            entries.len(),
+            error_count,
+            warning_count
         );
 
         let mut anomalies = Vec::new();
@@ -368,11 +405,19 @@ impl LogAnalyzer for PatternAnalyzer {
         if error_count > entries.len() / 4 {
             log::debug!(
                 "Error spike detected: {} errors / {} entries (threshold: >25%)",
-                error_count, entries.len()
+                error_count,
+                entries.len()
             );
-            if let Some(sample) = entries.iter().find(|e| e.line.to_lowercase().contains("error")) {
+            if let Some(sample) = entries
+                .iter()
+                .find(|e| e.line.to_lowercase().contains("error"))
+            {
                 anomalies.push(LogAnomaly {
-                    description: format!("High error rate: {} errors in {} entries", error_count, entries.len()),
+                    description: format!(
+                        "High error rate: {} errors in {} entries",
+                        error_count,
+                        entries.len()
+                    ),
                     severity: AnomalySeverity::High,
                     sample_line: sample.line.clone(),
                 });
@@ -381,7 +426,9 @@ impl LogAnalyzer for PatternAnalyzer {
 
         let summary_text = format!(
             "{} log entries analyzed. {} errors, {} warnings detected.",
-            entries.len(), error_count, warning_count
+            entries.len(),
+            error_count,
+            warning_count
         );
 
         Ok(LogSummary {
@@ -404,12 +451,15 @@ mod tests {
     use std::collections::HashMap;
 
     fn make_entries(lines: &[&str]) -> Vec<LogEntry> {
-        lines.iter().map(|line| LogEntry {
-            source_id: "test-source".into(),
-            timestamp: Utc::now(),
-            line: line.to_string(),
-            metadata: HashMap::new(),
-        }).collect()
+        lines
+            .iter()
+            .map(|line| LogEntry {
+                source_id: "test-source".into(),
+                timestamp: Utc::now(),
+                line: line.to_string(),
+                metadata: HashMap::new(),
+            })
+            .collect()
     }
 
     #[test]
@@ -518,7 +568,10 @@ mod tests {
     #[test]
     fn test_extract_json_with_preamble() {
         let input = "Here is the analysis:\n{\"summary\": \"ok\", \"error_count\": 0}";
-        assert_eq!(extract_json(input), r#"{"summary": "ok", "error_count": 0}"#);
+        assert_eq!(
+            extract_json(input),
+            r#"{"summary": "ok", "error_count": 0}"#
+        );
     }
 
     #[test]
@@ -593,11 +646,8 @@ mod tests {
 
     #[test]
     fn test_openai_analyzer_new() {
-        let analyzer = OpenAiAnalyzer::new(
-            "http://localhost:11434/v1".into(),
-            None,
-            "llama3".into(),
-        );
+        let analyzer =
+            OpenAiAnalyzer::new("http://localhost:11434/v1".into(), None, "llama3".into());
         assert_eq!(analyzer.api_url, "http://localhost:11434/v1");
         assert!(analyzer.api_key.is_none());
         assert_eq!(analyzer.model, "llama3");
@@ -605,11 +655,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_openai_analyzer_empty_entries() {
-        let analyzer = OpenAiAnalyzer::new(
-            "http://localhost:11434/v1".into(),
-            None,
-            "llama3".into(),
-        );
+        let analyzer =
+            OpenAiAnalyzer::new("http://localhost:11434/v1".into(), None, "llama3".into());
         let summary = analyzer.summarize(&[]).await.unwrap();
         assert_eq!(summary.total_entries, 0);
     }

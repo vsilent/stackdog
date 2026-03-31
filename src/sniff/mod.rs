@@ -3,23 +3,23 @@
 //! Discovers, reads, analyzes, and optionally consumes logs from
 //! Docker containers, system log files, and custom sources.
 
+pub mod analyzer;
 pub mod config;
+pub mod consumer;
 pub mod discovery;
 pub mod reader;
-pub mod analyzer;
-pub mod consumer;
 pub mod reporter;
 
-use anyhow::Result;
-use crate::database::connection::{create_pool, init_database, DbPool};
 use crate::alerting::notifications::NotificationConfig;
-use crate::sniff::config::SniffConfig;
-use crate::sniff::discovery::LogSourceType;
-use crate::sniff::reader::{LogReader, FileLogReader, DockerLogReader};
-use crate::sniff::analyzer::{LogAnalyzer, PatternAnalyzer};
-use crate::sniff::consumer::LogConsumer;
-use crate::sniff::reporter::Reporter;
+use crate::database::connection::{create_pool, init_database, DbPool};
 use crate::database::repositories::log_sources as log_sources_repo;
+use crate::sniff::analyzer::{LogAnalyzer, PatternAnalyzer};
+use crate::sniff::config::SniffConfig;
+use crate::sniff::consumer::LogConsumer;
+use crate::sniff::discovery::LogSourceType;
+use crate::sniff::reader::{DockerLogReader, FileLogReader, LogReader};
+use crate::sniff::reporter::Reporter;
+use anyhow::Result;
 
 /// Main orchestrator for the sniff command
 pub struct SniffOrchestrator {
@@ -42,7 +42,11 @@ impl SniffOrchestrator {
         }
         let reporter = Reporter::new(notification_config);
 
-        Ok(Self { config, pool, reporter })
+        Ok(Self {
+            config,
+            pool,
+            reporter,
+        })
     }
 
     /// Create the appropriate AI analyzer based on config
@@ -51,7 +55,8 @@ impl SniffOrchestrator {
             config::AiProvider::OpenAi => {
                 log::debug!(
                     "Creating OpenAI-compatible analyzer (model: {}, url: {})",
-                    self.config.ai_model, self.config.ai_api_url
+                    self.config.ai_model,
+                    self.config.ai_api_url
                 );
                 Box::new(analyzer::OpenAiAnalyzer::new(
                     self.config.ai_api_url.clone(),
@@ -68,28 +73,28 @@ impl SniffOrchestrator {
 
     /// Build readers for discovered sources, restoring saved positions from DB
     fn build_readers(&self, sources: &[discovery::LogSource]) -> Vec<Box<dyn LogReader>> {
-        sources.iter().filter_map(|source| {
-            let saved = log_sources_repo::get_log_source_by_path(&self.pool, &source.path_or_id)
-                .ok()
-                .flatten();
-            let offset = saved.map(|s| s.last_read_position).unwrap_or(0);
+        sources
+            .iter()
+            .filter_map(|source| {
+                let saved =
+                    log_sources_repo::get_log_source_by_path(&self.pool, &source.path_or_id)
+                        .ok()
+                        .flatten();
+                let offset = saved.map(|s| s.last_read_position).unwrap_or(0);
 
-            match source.source_type {
-                LogSourceType::SystemLog | LogSourceType::CustomFile => {
-                    Some(Box::new(FileLogReader::new(
+                match source.source_type {
+                    LogSourceType::SystemLog | LogSourceType::CustomFile => Some(Box::new(
+                        FileLogReader::new(source.id.clone(), source.path_or_id.clone(), offset),
+                    )
+                        as Box<dyn LogReader>),
+                    LogSourceType::DockerContainer => Some(Box::new(DockerLogReader::new(
                         source.id.clone(),
                         source.path_or_id.clone(),
-                        offset,
-                    )) as Box<dyn LogReader>)
+                    ))
+                        as Box<dyn LogReader>),
                 }
-                LogSourceType::DockerContainer => {
-                    Some(Box::new(DockerLogReader::new(
-                        source.id.clone(),
-                        source.path_or_id.clone(),
-                    )) as Box<dyn LogReader>)
-                }
-            }
-        }).collect()
+            })
+            .collect()
     }
 
     /// Run a single sniff pass: discover → read → analyze → report → consume
@@ -112,7 +117,10 @@ impl SniffOrchestrator {
         let mut readers = self.build_readers(&sources);
         let analyzer = self.create_analyzer();
         let mut consumer = if self.config.consume {
-            log::debug!("Consume mode enabled, output: {}", self.config.output_dir.display());
+            log::debug!(
+                "Consume mode enabled, output: {}",
+                self.config.output_dir.display()
+            );
             Some(LogConsumer::new(self.config.output_dir.clone())?)
         } else {
             None
@@ -121,7 +129,12 @@ impl SniffOrchestrator {
         // 3. Process each source
         let reader_count = readers.len();
         for (i, reader) in readers.iter_mut().enumerate() {
-            log::debug!("Step 3: reading source {}/{} ({})", i + 1, reader_count, reader.source_id());
+            log::debug!(
+                "Step 3: reading source {}/{} ({})",
+                i + 1,
+                reader_count,
+                reader.source_id()
+            );
             let entries = reader.read_new_entries().await?;
             if entries.is_empty() {
                 log::debug!("  No new entries, skipping");
@@ -136,7 +149,9 @@ impl SniffOrchestrator {
             let summary = analyzer.summarize(&entries).await?;
             log::debug!(
                 "  Analysis complete: {} errors, {} warnings, {} anomalies",
-                summary.error_count, summary.warning_count, summary.anomalies.len()
+                summary.error_count,
+                summary.warning_count,
+                summary.anomalies.len()
             );
 
             // 5. Report
@@ -149,16 +164,21 @@ impl SniffOrchestrator {
                 if i < sources.len() {
                     log::debug!("Step 6: consuming entries...");
                     let source = &sources[i];
-                    let consume_result = cons.consume(
-                        &entries,
-                        &source.name,
-                        &source.source_type,
-                        &source.path_or_id,
-                    ).await?;
+                    let consume_result = cons
+                        .consume(
+                            &entries,
+                            &source.name,
+                            &source.source_type,
+                            &source.path_or_id,
+                        )
+                        .await?;
                     result.bytes_freed += consume_result.bytes_freed;
                     result.entries_archived += consume_result.entries_archived;
-                    log::debug!("  Consumed: {} archived, {} bytes freed",
-                        consume_result.entries_archived, consume_result.bytes_freed);
+                    log::debug!(
+                        "  Consumed: {} archived, {} bytes freed",
+                        consume_result.entries_archived,
+                        consume_result.bytes_freed
+                    );
                 }
             }
 
@@ -232,7 +252,15 @@ mod tests {
     #[test]
     fn test_orchestrator_creates_with_memory_db() {
         let mut config = SniffConfig::from_env_and_args(
-            true, false, "./stackdog-logs/", None, 30, None, None, None, None,
+            true,
+            false,
+            "./stackdog-logs/",
+            None,
+            30,
+            None,
+            None,
+            None,
+            None,
         );
         config.database_url = ":memory:".into();
 
@@ -253,9 +281,15 @@ mod tests {
         }
 
         let mut config = SniffConfig::from_env_and_args(
-            true, false, "./stackdog-logs/",
+            true,
+            false,
+            "./stackdog-logs/",
             Some(&log_path.to_string_lossy()),
-            30, Some("candle"), None, None, None,
+            30,
+            Some("candle"),
+            None,
+            None,
+            None,
         );
         config.database_url = ":memory:".into();
 

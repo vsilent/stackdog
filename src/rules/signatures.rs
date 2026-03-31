@@ -2,8 +2,8 @@
 //!
 //! Known threat patterns and signatures for detection
 
-use crate::events::syscall::{SyscallEvent, SyscallType};
 use crate::events::security::SecurityEvent;
+use crate::events::syscall::{SyscallEvent, SyscallType};
 
 /// Threat categories
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -57,27 +57,27 @@ impl Signature {
             syscall_patterns,
         }
     }
-    
+
     /// Get the signature name
     pub fn name(&self) -> &str {
         &self.name
     }
-    
+
     /// Get the description
     pub fn description(&self) -> &str {
         &self.description
     }
-    
+
     /// Get the severity (0-100)
     pub fn severity(&self) -> u8 {
         self.severity
     }
-    
+
     /// Get the category
     pub fn category(&self) -> &ThreatCategory {
         &self.category
     }
-    
+
     /// Check if a syscall matches this signature
     pub fn matches(&self, syscall_type: &SyscallType) -> bool {
         self.syscall_patterns.contains(syscall_type)
@@ -95,12 +95,12 @@ impl SignatureDatabase {
         let mut db = Self {
             signatures: Vec::new(),
         };
-        
+
         // Load built-in signatures
         db.load_builtin_signatures();
         db
     }
-    
+
     /// Load built-in threat signatures
     fn load_builtin_signatures(&mut self) {
         // Crypto miner detection - execve + setuid pattern
@@ -111,7 +111,7 @@ impl SignatureDatabase {
             ThreatCategory::CryptoMiner,
             vec![SyscallType::Execve, SyscallType::Setuid],
         ));
-        
+
         // Container escape - ptrace + mount pattern
         self.signatures.push(Signature::new(
             "container_escape_ptrace",
@@ -120,7 +120,7 @@ impl SignatureDatabase {
             ThreatCategory::ContainerEscape,
             vec![SyscallType::Ptrace],
         ));
-        
+
         self.signatures.push(Signature::new(
             "container_escape_mount",
             "Detects mount syscall associated with container escape attempts",
@@ -128,7 +128,7 @@ impl SignatureDatabase {
             ThreatCategory::ContainerEscape,
             vec![SyscallType::Mount],
         ));
-        
+
         // Network scanner - connect + bind pattern
         self.signatures.push(Signature::new(
             "network_scanner_connect",
@@ -137,7 +137,7 @@ impl SignatureDatabase {
             ThreatCategory::NetworkScanner,
             vec![SyscallType::Connect],
         ));
-        
+
         self.signatures.push(Signature::new(
             "network_scanner_bind",
             "Detects bind syscall commonly used by network scanners",
@@ -145,7 +145,7 @@ impl SignatureDatabase {
             ThreatCategory::NetworkScanner,
             vec![SyscallType::Bind],
         ));
-        
+
         // Privilege escalation - setuid + setgid pattern
         self.signatures.push(Signature::new(
             "privilege_escalation_setuid",
@@ -154,7 +154,7 @@ impl SignatureDatabase {
             ThreatCategory::PrivilegeEscalation,
             vec![SyscallType::Setuid, SyscallType::Setgid],
         ));
-        
+
         // Data exfiltration - connect pattern
         self.signatures.push(Signature::new(
             "data_exfiltration_network",
@@ -163,7 +163,7 @@ impl SignatureDatabase {
             ThreatCategory::DataExfiltration,
             vec![SyscallType::Connect, SyscallType::Sendto],
         ));
-        
+
         // Malware indicators
         self.signatures.push(Signature::new(
             "malware_execve_tmp",
@@ -172,7 +172,7 @@ impl SignatureDatabase {
             ThreatCategory::Malware,
             vec![SyscallType::Execve],
         ));
-        
+
         // Suspicious activity
         self.signatures.push(Signature::new(
             "suspicious_execveat",
@@ -181,7 +181,7 @@ impl SignatureDatabase {
             ThreatCategory::Suspicious,
             vec![SyscallType::Execveat],
         ));
-        
+
         self.signatures.push(Signature::new(
             "suspicious_openat",
             "Detects openat syscall for file access monitoring",
@@ -190,27 +190,27 @@ impl SignatureDatabase {
             vec![SyscallType::Openat],
         ));
     }
-    
+
     /// Get all signatures
     pub fn get_signatures(&self) -> &[Signature] {
         &self.signatures
     }
-    
+
     /// Get signature count
     pub fn signature_count(&self) -> usize {
         self.signatures.len()
     }
-    
+
     /// Add a custom signature
     pub fn add_signature(&mut self, signature: Signature) {
         self.signatures.push(signature);
     }
-    
+
     /// Remove a signature by name
     pub fn remove_signature(&mut self, name: &str) {
         self.signatures.retain(|sig| sig.name() != name);
     }
-    
+
     /// Get signatures by category
     pub fn get_signatures_by_category(&self, category: &ThreatCategory) -> Vec<&Signature> {
         self.signatures
@@ -218,7 +218,7 @@ impl SignatureDatabase {
             .filter(|sig| sig.category() == category)
             .collect()
     }
-    
+
     /// Find signatures that match a syscall
     pub fn find_matching(&self, syscall_type: &SyscallType) -> Vec<&Signature> {
         self.signatures
@@ -226,7 +226,7 @@ impl SignatureDatabase {
             .filter(|sig| sig.matches(syscall_type))
             .collect()
     }
-    
+
     /// Detect threats in an event
     pub fn detect(&self, event: &SecurityEvent) -> Vec<&Signature> {
         match event {
@@ -247,7 +247,7 @@ impl Default for SignatureDatabase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_signature_creation() {
         let sig = Signature::new(
@@ -260,7 +260,7 @@ mod tests {
         assert_eq!(sig.name(), "test_sig");
         assert_eq!(sig.severity(), 50);
     }
-    
+
     #[test]
     fn test_threat_category_display() {
         assert_eq!(format!("{}", ThreatCategory::Suspicious), "Suspicious");

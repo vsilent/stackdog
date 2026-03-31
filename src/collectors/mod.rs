@@ -5,8 +5,8 @@
 //! - Docker events streaming
 //! - Network traffic capture
 
-pub mod ebpf;
 pub mod docker_events;
+pub mod ebpf;
 pub mod network;
 
 /// Marker struct for module tests
