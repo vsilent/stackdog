@@ -3,7 +3,7 @@
 //! Pre-defined rules for common security scenarios
 
 use crate::events::security::SecurityEvent;
-use crate::events::syscall::{SyscallEvent, SyscallType};
+use crate::events::syscall::SyscallType;
 use crate::rules::rule::{Rule, RuleResult};
 
 /// Syscall allowlist rule
@@ -205,6 +205,7 @@ impl Rule for FileAccessRule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::syscall::SyscallEvent;
     use chrono::Utc;
 
     #[test]

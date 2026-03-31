@@ -2,7 +2,7 @@
 //!
 //! Detects container ID from cgroup and other sources
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 /// Container detector
 pub struct ContainerDetector {
@@ -45,11 +45,11 @@ impl ContainerDetector {
     }
 
     /// Detect container ID from cgroup file
-    fn detect_from_cgroup(&self, pid: u32) -> Option<String> {
+    fn detect_from_cgroup(&self, _pid: u32) -> Option<String> {
         #[cfg(target_os = "linux")]
         {
             // Read /proc/[pid]/cgroup
-            let cgroup_path = format!("/proc/{}/cgroup", pid);
+            let cgroup_path = format!("/proc/{}/cgroup", _pid);
             if let Ok(content) = std::fs::read_to_string(&cgroup_path) {
                 for line in content.lines() {
                     if let Some(id) = Self::parse_container_from_cgroup(line) {
@@ -114,7 +114,7 @@ impl ContainerDetector {
         // Look for /kubepods/.../container_id
         if path.contains("/kubepods/") {
             // Get last component
-            let id = path.split('/').last()?;
+            let id = path.split('/').next_back()?;
 
             if Self::is_valid_container_id(id) {
                 return Some(id.to_string());

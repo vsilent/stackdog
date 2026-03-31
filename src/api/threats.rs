@@ -1,7 +1,7 @@
 //! Threats API endpoints
 
+use crate::models::api::threats::{ThreatResponse, ThreatStatisticsResponse};
 use actix_web::{web, HttpResponse, Responder};
-use stackdog::models::api::threats::{ThreatResponse, ThreatStatisticsResponse};
 use std::collections::HashMap;
 
 /// Get all threats

@@ -5,8 +5,8 @@
 use crate::collectors::ebpf::container::ContainerDetector;
 use crate::collectors::ebpf::enrichment::EventEnricher;
 use crate::collectors::ebpf::ring_buffer::EventRingBuffer;
-use crate::events::syscall::{SyscallEvent, SyscallType};
-use anyhow::{Context, Result};
+use crate::events::syscall::SyscallEvent;
+use anyhow::Result;
 
 /// Syscall monitor using eBPF
 pub struct SyscallMonitor {
@@ -18,8 +18,8 @@ pub struct SyscallMonitor {
 
     running: bool,
     event_buffer: EventRingBuffer,
-    enricher: EventEnricher,
-    container_detector: Option<ContainerDetector>,
+    _enricher: EventEnricher,
+    _container_detector: Option<ContainerDetector>,
 }
 
 impl SyscallMonitor {
@@ -39,8 +39,8 @@ impl SyscallMonitor {
                 ring_buf: None,
                 running: false,
                 event_buffer: EventRingBuffer::with_capacity(8192),
-                enricher,
-                container_detector,
+                _enricher: enricher,
+                _container_detector: container_detector,
             })
         }
 
@@ -143,7 +143,7 @@ impl SyscallMonitor {
             // Drain the staging buffer and enrich with /proc info
             let mut events = self.event_buffer.drain();
             for event in &mut events {
-                let _ = self.enricher.enrich(event);
+                let _ = self._enricher.enrich(event);
             }
 
             events
@@ -170,7 +170,7 @@ impl SyscallMonitor {
     pub fn current_container_id(&mut self) -> Option<String> {
         #[cfg(target_os = "linux")]
         {
-            if let Some(detector) = &mut self.container_detector {
+            if let Some(detector) = &mut self._container_detector {
                 return detector.current_container();
             }
         }
@@ -178,11 +178,11 @@ impl SyscallMonitor {
     }
 
     /// Detect container for a specific PID
-    pub fn detect_container_for_pid(&mut self, pid: u32) -> Option<String> {
+    pub fn detect_container_for_pid(&mut self, _pid: u32) -> Option<String> {
         #[cfg(target_os = "linux")]
         {
-            if let Some(detector) = &mut self.container_detector {
-                return detector.detect_container(pid);
+            if let Some(detector) = &mut self._container_detector {
+                return detector.detect_container(_pid);
             }
         }
         None

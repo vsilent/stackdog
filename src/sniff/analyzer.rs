@@ -351,6 +351,12 @@ impl LogAnalyzer for OpenAiAnalyzer {
 /// Fallback local analyzer that uses pattern matching (no AI required)
 pub struct PatternAnalyzer;
 
+impl Default for PatternAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PatternAnalyzer {
     pub fn new() -> Self {
         Self

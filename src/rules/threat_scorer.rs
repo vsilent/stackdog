@@ -5,7 +5,6 @@
 use crate::events::security::SecurityEvent;
 use crate::rules::result::Severity;
 use crate::rules::signature_matcher::SignatureMatcher;
-use chrono::Utc;
 
 /// Threat score (0-100)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,13 +67,18 @@ pub struct ScoringConfig {
 }
 
 impl ScoringConfig {
-    /// Create default config
-    pub fn default() -> Self {
+    /// Create a new scoring config
+    pub fn new(
+        base_score: u8,
+        multiplier: f64,
+        time_decay_enabled: bool,
+        decay_half_life_seconds: u64,
+    ) -> Self {
         Self {
-            base_score: 50,
-            multiplier: 1.0,
-            time_decay_enabled: false,
-            decay_half_life_seconds: 3600, // 1 hour
+            base_score,
+            multiplier,
+            time_decay_enabled,
+            decay_half_life_seconds,
         }
     }
 
@@ -120,7 +124,7 @@ impl ScoringConfig {
 
 impl Default for ScoringConfig {
     fn default() -> Self {
-        Self::default()
+        Self::new(50, 1.0, false, 3600)
     }
 }
 

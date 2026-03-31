@@ -3,7 +3,6 @@
 use anyhow::Result;
 use r2d2::{ManageConnection, Pool};
 use rusqlite::{Connection, Result as RusqliteResult};
-use std::fmt;
 
 /// Rusqlite connection manager
 #[derive(Debug)]
@@ -28,7 +27,7 @@ impl ManageConnection for SqliteConnectionManager {
     }
 
     fn is_valid(&self, conn: &mut Self::Connection) -> RusqliteResult<()> {
-        conn.execute_batch("").map_err(|e| e.into())
+        conn.execute_batch("")
     }
 
     fn has_broken(&self, _: &mut Self::Connection) -> bool {

@@ -108,7 +108,7 @@ impl EventValidator {
     }
 
     /// Validate a port number
-    pub fn validate_port(port: u16) -> ValidationResult {
+    pub fn validate_port(_port: u16) -> ValidationResult {
         // All u16 values are valid ports (0-65535)
         ValidationResult::valid()
     }

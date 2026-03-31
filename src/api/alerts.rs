@@ -5,9 +5,7 @@ use crate::database::{
     update_alert_status, AlertFilter, DbPool,
 };
 use actix_web::{web, HttpResponse, Responder};
-use chrono::Utc;
 use serde::Deserialize;
-use uuid::Uuid;
 
 /// Query parameters for alert filtering
 #[derive(Debug, Deserialize)]
@@ -156,6 +154,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_get_alerts_empty() {
         let pool = create_pool(":memory:").unwrap();
+        crate::database::init_database(&pool).unwrap();
         let pool_data = web::Data::new(pool);
 
         let app =

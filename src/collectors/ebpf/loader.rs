@@ -4,7 +4,7 @@
 //!
 //! Note: This module is only available on Linux with the ebpf feature enabled
 
-use anyhow::{bail, Context, Result};
+use anyhow::Result;
 use std::collections::HashMap;
 
 /// eBPF loader errors
@@ -36,6 +36,7 @@ pub enum LoadError {
 ///
 /// Responsible for loading eBPF programs from ELF files
 /// and attaching them to kernel tracepoints
+#[derive(Default)]
 pub struct EbpfLoader {
     #[cfg(all(target_os = "linux", feature = "ebpf"))]
     bpf: Option<aya::Bpf>,
@@ -46,7 +47,7 @@ pub struct EbpfLoader {
 
 #[derive(Debug, Clone)]
 struct ProgramInfo {
-    name: String,
+    _name: String,
     attached: bool,
 }
 
@@ -160,7 +161,7 @@ impl EbpfLoader {
             self.loaded_programs.insert(
                 _program_name.to_string(),
                 ProgramInfo {
-                    name: _program_name.to_string(),
+                    _name: _program_name.to_string(),
                     attached: true,
                 },
             );
@@ -270,18 +271,8 @@ impl EbpfLoader {
     }
 }
 
-impl Default for EbpfLoader {
-    fn default() -> Self {
-        Self {
-            #[cfg(all(target_os = "linux", feature = "ebpf"))]
-            bpf: None,
-            loaded_programs: HashMap::new(),
-            kernel_version: None,
-        }
-    }
-}
-
 /// Map program name to its tracepoint (category, name) for aya attachment.
+#[cfg(all(target_os = "linux", feature = "ebpf"))]
 fn program_to_tracepoint(name: &str) -> Option<(&'static str, &'static str)> {
     match name {
         "trace_execve" => Some(("syscalls", "sys_enter_execve")),

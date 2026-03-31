@@ -4,7 +4,7 @@
 
 use crate::events::security::SecurityEvent;
 use crate::events::syscall::SyscallType;
-use crate::rules::signatures::{Signature, SignatureDatabase};
+use crate::rules::signatures::SignatureDatabase;
 use chrono::{DateTime, Utc};
 
 /// Pattern match definition
@@ -237,12 +237,12 @@ impl SignatureMatcher {
 
         // Check time window if specified
         if let Some(window) = pattern.time_window() {
-            if let (Some(first), Some(last)) = (first_match_time, events.last()) {
-                if let SecurityEvent::Syscall(last_event) = last {
-                    let elapsed = last_event.timestamp - first;
-                    if elapsed.num_seconds() > window as i64 {
-                        return false;
-                    }
+            if let (Some(first), Some(SecurityEvent::Syscall(last_event))) =
+                (first_match_time, events.last())
+            {
+                let elapsed = last_event.timestamp - first;
+                if elapsed.num_seconds() > window as i64 {
+                    return false;
                 }
             }
         }

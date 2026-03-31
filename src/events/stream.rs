@@ -215,12 +215,7 @@ impl Iterator for FilteredEventIterator {
     type Item = SecurityEvent;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(event) = self.inner.next() {
-            if self.filter.matches(&event) {
-                return Some(event);
-            }
-        }
-        None
+        self.inner.by_ref().find(|event| self.filter.matches(event))
     }
 }
 

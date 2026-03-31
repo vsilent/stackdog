@@ -3,7 +3,7 @@
 //! Known threat patterns and signatures for detection
 
 use crate::events::security::SecurityEvent;
-use crate::events::syscall::{SyscallEvent, SyscallType};
+use crate::events::syscall::SyscallType;
 
 /// Threat categories
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

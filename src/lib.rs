@@ -15,12 +15,9 @@
 #![allow(unused_must_use)]
 
 // External crates
-#[macro_use]
-extern crate serde;
-#[macro_use]
-extern crate serde_json;
-#[macro_use]
 extern crate log;
+extern crate serde;
+extern crate serde_json;
 
 // Docker (Linux only)
 #[cfg(target_os = "linux")]
@@ -59,6 +56,9 @@ pub mod response;
 
 // Configuration
 pub mod config;
+
+// API
+pub mod api;
 
 // Log sniffing
 pub mod sniff;

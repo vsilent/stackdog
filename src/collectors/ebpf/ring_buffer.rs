@@ -3,7 +3,6 @@
 //! Provides efficient event buffering from eBPF to userspace
 
 use crate::events::syscall::SyscallEvent;
-use anyhow::Result;
 
 /// Ring buffer for eBPF events
 pub struct EventRingBuffer {

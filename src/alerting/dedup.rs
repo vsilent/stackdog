@@ -16,12 +16,12 @@ pub struct DedupConfig {
 }
 
 impl DedupConfig {
-    /// Create default config
-    pub fn default() -> Self {
+    /// Create a new config with given values
+    pub fn new(enabled: bool, window_seconds: u64, aggregation: bool) -> Self {
         Self {
-            enabled: true,
-            window_seconds: 300, // 5 minutes
-            aggregation: true,
+            enabled,
+            window_seconds,
+            aggregation,
         }
     }
 
@@ -61,7 +61,7 @@ impl DedupConfig {
 
 impl Default for DedupConfig {
     fn default() -> Self {
-        Self::default()
+        Self::new(true, 300, true)
     }
 }
 

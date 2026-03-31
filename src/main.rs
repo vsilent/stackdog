@@ -4,11 +4,9 @@
 
 #![allow(unused_must_use)]
 
-#[macro_use]
-extern crate log;
-#[macro_use]
-extern crate serde_json;
 extern crate bollard;
+extern crate log;
+extern crate serde_json;
 
 extern crate actix_cors;
 extern crate actix_rt;
@@ -18,22 +16,14 @@ extern crate env_logger;
 extern crate tracing;
 extern crate tracing_subscriber;
 
-mod alerting;
-mod api;
 mod cli;
-mod config;
-mod database;
-mod docker;
-mod events;
-mod models;
-mod rules;
-mod sniff;
 
 use actix_cors::Cors;
 use actix_web::{web, App, HttpServer};
 use clap::Parser;
 use cli::{Cli, Command};
-use database::{create_pool, init_database};
+use stackdog::database::{create_pool, init_database};
+use stackdog::sniff;
 use std::{env, io};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -86,18 +76,18 @@ async fn main() -> io::Result<()> {
             ai_api_url,
             slack_webhook,
         }) => {
-            run_sniff(
+            let config = sniff::config::SniffConfig::from_env_and_args(sniff::config::SniffArgs {
                 once,
                 consume,
-                output,
-                sources,
+                output: &output,
+                sources: sources.as_deref(),
                 interval,
-                ai_provider,
-                ai_model,
-                ai_api_url,
-                slack_webhook,
-            )
-            .await
+                ai_provider: ai_provider.as_deref(),
+                ai_model: ai_model.as_deref(),
+                ai_api_url: ai_api_url.as_deref(),
+                slack_webhook: slack_webhook.as_deref(),
+            });
+            run_sniff(config).await
         }
         // Default: serve (backward compatible)
         Some(Command::Serve) | None => run_serve().await,
@@ -150,36 +140,14 @@ async fn run_serve() -> io::Result<()> {
             .app_data(pool_data.clone())
             .wrap(Cors::permissive())
             .wrap(actix_web::middleware::Logger::default())
-            .configure(api::configure_all_routes)
+            .configure(stackdog::api::configure_all_routes)
     })
     .bind(&app_url)?
     .run()
     .await
 }
 
-async fn run_sniff(
-    once: bool,
-    consume: bool,
-    output: String,
-    sources: Option<String>,
-    interval: u64,
-    ai_provider: Option<String>,
-    ai_model: Option<String>,
-    ai_api_url: Option<String>,
-    slack_webhook: Option<String>,
-) -> io::Result<()> {
-    let config = sniff::config::SniffConfig::from_env_and_args(
-        once,
-        consume,
-        &output,
-        sources.as_deref(),
-        interval,
-        ai_provider.as_deref(),
-        ai_model.as_deref(),
-        ai_api_url.as_deref(),
-        slack_webhook.as_deref(),
-    );
-
+async fn run_sniff(config: sniff::config::SniffConfig) -> io::Result<()> {
     info!("🔍 Stackdog Sniff starting...");
     info!(
         "Mode: {}",
@@ -199,11 +167,7 @@ async fn run_sniff(
         info!("Slack: configured ✓");
     }
 
-    let orchestrator = sniff::SniffOrchestrator::new(config)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let orchestrator = sniff::SniffOrchestrator::new(config).map_err(io::Error::other)?;
 
-    orchestrator
-        .run()
-        .await
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+    orchestrator.run().await.map_err(io::Error::other)
 }

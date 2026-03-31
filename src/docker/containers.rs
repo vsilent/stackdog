@@ -1,7 +1,7 @@
 //! Container management
 
 use crate::database::models::Alert;
-use crate::database::{create_alert, create_sample_alert, update_alert_status, DbPool};
+use crate::database::{create_alert, DbPool};
 use crate::docker::client::{ContainerInfo, DockerClient};
 use anyhow::Result;
 use chrono::Utc;
@@ -71,12 +71,12 @@ impl ContainerManager {
         &self,
         container_id: &str,
     ) -> Result<ContainerSecurityStatus> {
-        let info = self.docker.get_container_info(container_id).await?;
+        let _info = self.docker.get_container_info(container_id).await?;
 
         // Calculate risk score based on various factors
-        let mut risk_score = 0;
-        let mut threats = 0;
-        let mut security_state = "Secure";
+        let risk_score = 0;
+        let threats = 0;
+        let security_state = "Secure";
 
         // Check if running as root
         // Check for privileged mode

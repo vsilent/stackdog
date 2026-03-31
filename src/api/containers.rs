@@ -1,6 +1,5 @@
 //! Containers API endpoints
 
-use crate::database::models::ContainerCache;
 use crate::database::DbPool;
 use crate::docker::client::ContainerInfo;
 use crate::docker::containers::ContainerManager;

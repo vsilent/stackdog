@@ -1,7 +1,7 @@
 //! Security API endpoints
 
+use crate::models::api::security::SecurityStatusResponse;
 use actix_web::{web, HttpResponse, Responder};
-use stackdog::models::api::security::SecurityStatusResponse;
 
 /// Get overall security status
 ///

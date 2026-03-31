@@ -3,7 +3,6 @@
 //! Manages alert generation, storage, and lifecycle
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -129,7 +128,7 @@ impl AlertManager {
 
     /// Get statistics
     pub fn get_stats(&self) -> AlertStats {
-        let stats = self.stats.read().unwrap();
+        let _stats = self.stats.read().unwrap();
 
         // Calculate current counts from alerts
         let alerts = self.alerts.read().unwrap();

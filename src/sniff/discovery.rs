@@ -26,13 +26,15 @@ impl std::fmt::Display for LogSourceType {
     }
 }
 
-impl LogSourceType {
-    pub fn from_str(s: &str) -> Self {
-        match s {
+impl std::str::FromStr for LogSourceType {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(match s {
             "DockerContainer" => LogSourceType::DockerContainer,
             "SystemLog" => LogSourceType::SystemLog,
             _ => LogSourceType::CustomFile,
-        }
+        })
     }
 }
 
@@ -194,19 +196,19 @@ mod tests {
     #[test]
     fn test_log_source_type_from_str() {
         assert_eq!(
-            LogSourceType::from_str("DockerContainer"),
+            "DockerContainer".parse::<LogSourceType>().unwrap(),
             LogSourceType::DockerContainer
         );
         assert_eq!(
-            LogSourceType::from_str("SystemLog"),
+            "SystemLog".parse::<LogSourceType>().unwrap(),
             LogSourceType::SystemLog
         );
         assert_eq!(
-            LogSourceType::from_str("CustomFile"),
+            "CustomFile".parse::<LogSourceType>().unwrap(),
             LogSourceType::CustomFile
         );
         assert_eq!(
-            LogSourceType::from_str("anything"),
+            "anything".parse::<LogSourceType>().unwrap(),
             LogSourceType::CustomFile
         );
     }

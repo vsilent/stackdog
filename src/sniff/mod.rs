@@ -75,7 +75,7 @@ impl SniffOrchestrator {
     fn build_readers(&self, sources: &[discovery::LogSource]) -> Vec<Box<dyn LogReader>> {
         sources
             .iter()
-            .filter_map(|source| {
+            .map(|source| {
                 let saved =
                     log_sources_repo::get_log_source_by_path(&self.pool, &source.path_or_id)
                         .ok()
@@ -83,15 +83,14 @@ impl SniffOrchestrator {
                 let offset = saved.map(|s| s.last_read_position).unwrap_or(0);
 
                 match source.source_type {
-                    LogSourceType::SystemLog | LogSourceType::CustomFile => Some(Box::new(
+                    LogSourceType::SystemLog | LogSourceType::CustomFile => Box::new(
                         FileLogReader::new(source.id.clone(), source.path_or_id.clone(), offset),
                     )
-                        as Box<dyn LogReader>),
-                    LogSourceType::DockerContainer => Some(Box::new(DockerLogReader::new(
+                        as Box<dyn LogReader>,
+                    LogSourceType::DockerContainer => Box::new(DockerLogReader::new(
                         source.id.clone(),
                         source.path_or_id.clone(),
-                    ))
-                        as Box<dyn LogReader>),
+                    )) as Box<dyn LogReader>,
                 }
             })
             .collect()
@@ -251,17 +250,17 @@ mod tests {
 
     #[test]
     fn test_orchestrator_creates_with_memory_db() {
-        let mut config = SniffConfig::from_env_and_args(
-            true,
-            false,
-            "./stackdog-logs/",
-            None,
-            30,
-            None,
-            None,
-            None,
-            None,
-        );
+        let mut config = SniffConfig::from_env_and_args(config::SniffArgs {
+            once: true,
+            consume: false,
+            output: "./stackdog-logs/",
+            sources: None,
+            interval: 30,
+            ai_provider: None,
+            ai_model: None,
+            ai_api_url: None,
+            slack_webhook: None,
+        });
         config.database_url = ":memory:".into();
 
         let orchestrator = SniffOrchestrator::new(config);
@@ -280,17 +279,17 @@ mod tests {
             writeln!(f, "WARN: retry in 5s").unwrap();
         }
 
-        let mut config = SniffConfig::from_env_and_args(
-            true,
-            false,
-            "./stackdog-logs/",
-            Some(&log_path.to_string_lossy()),
-            30,
-            Some("candle"),
-            None,
-            None,
-            None,
-        );
+        let mut config = SniffConfig::from_env_and_args(config::SniffArgs {
+            once: true,
+            consume: false,
+            output: "./stackdog-logs/",
+            sources: Some(&log_path.to_string_lossy()),
+            interval: 30,
+            ai_provider: Some("candle"),
+            ai_model: None,
+            ai_api_url: None,
+            slack_webhook: None,
+        });
         config.database_url = ":memory:".into();
 
         let orchestrator = SniffOrchestrator::new(config).unwrap();

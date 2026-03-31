@@ -5,7 +5,6 @@
 use crate::events::security::SecurityEvent;
 use crate::rules::result::RuleEvaluationResult;
 use crate::rules::rule::{Rule, RuleResult};
-use anyhow::Result;
 
 /// Rule engine for evaluating security rules
 pub struct RuleEngine {

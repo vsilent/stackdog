@@ -3,7 +3,6 @@
 //! Notification channels for alert delivery
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
 
 use crate::alerting::alert::{Alert, AlertSeverity};
 
@@ -13,10 +12,10 @@ pub struct NotificationConfig {
     slack_webhook: Option<String>,
     smtp_host: Option<String>,
     smtp_port: Option<u16>,
-    smtp_user: Option<String>,
-    smtp_password: Option<String>,
+    _smtp_user: Option<String>,
+    _smtp_password: Option<String>,
     webhook_url: Option<String>,
-    email_recipients: Vec<String>,
+    _email_recipients: Vec<String>,
 }
 
 impl NotificationConfig {
@@ -26,10 +25,10 @@ impl NotificationConfig {
             slack_webhook: None,
             smtp_host: None,
             smtp_port: None,
-            smtp_user: None,
-            smtp_password: None,
+            _smtp_user: None,
+            _smtp_password: None,
             webhook_url: None,
-            email_recipients: Vec::new(),
+            _email_recipients: Vec::new(),
         }
     }
 

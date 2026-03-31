@@ -135,7 +135,7 @@ impl DockerClient {
     }
 
     /// Get container stats
-    pub async fn get_container_stats(&self, container_id: &str) -> Result<ContainerStats> {
+    pub async fn get_container_stats(&self, _container_id: &str) -> Result<ContainerStats> {
         // Implementation would use Docker stats API
         // For now, return placeholder
         Ok(ContainerStats {

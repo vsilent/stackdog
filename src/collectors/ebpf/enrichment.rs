@@ -7,22 +7,21 @@ use anyhow::Result;
 
 /// Event enricher
 pub struct EventEnricher {
-    // Cache for process information
-    process_cache: std::collections::HashMap<u32, ProcessInfo>,
+    _process_cache: std::collections::HashMap<u32, ProcessInfo>,
 }
 
 #[derive(Debug, Clone)]
 struct ProcessInfo {
-    pid: u32,
-    ppid: u32,
-    comm: Option<String>,
+    _pid: u32,
+    _ppid: u32,
+    _comm: Option<String>,
 }
 
 impl EventEnricher {
     /// Create a new event enricher
     pub fn new() -> Result<Self> {
         Ok(Self {
-            process_cache: std::collections::HashMap::new(),
+            _process_cache: std::collections::HashMap::new(),
         })
     }
 
@@ -44,11 +43,11 @@ impl EventEnricher {
     }
 
     /// Get parent PID for a process
-    pub fn get_parent_pid(&self, pid: u32) -> Option<u32> {
+    pub fn get_parent_pid(&self, _pid: u32) -> Option<u32> {
         #[cfg(target_os = "linux")]
         {
             // Read from /proc/[pid]/stat
-            let stat_path = format!("/proc/{}/stat", pid);
+            let stat_path = format!("/proc/{}/stat", _pid);
             if let Ok(content) = std::fs::read_to_string(&stat_path) {
                 // Parse ppid from stat file (field 4)
                 let parts: Vec<&str> = content.split_whitespace().collect();
@@ -64,11 +63,11 @@ impl EventEnricher {
     }
 
     /// Get process command name
-    pub fn get_process_comm(&self, pid: u32) -> Option<String> {
+    pub fn get_process_comm(&self, _pid: u32) -> Option<String> {
         #[cfg(target_os = "linux")]
         {
             // Read from /proc/[pid]/comm
-            let comm_path = format!("/proc/{}/comm", pid);
+            let comm_path = format!("/proc/{}/comm", _pid);
             if let Ok(content) = std::fs::read_to_string(&comm_path) {
                 return Some(content.trim().to_string());
             }
@@ -91,11 +90,11 @@ impl EventEnricher {
     }
 
     /// Get process executable path
-    pub fn get_process_exe(&self, pid: u32) -> Option<String> {
+    pub fn get_process_exe(&self, _pid: u32) -> Option<String> {
         #[cfg(target_os = "linux")]
         {
             // Read symlink /proc/[pid]/exe
-            let exe_path = format!("/proc/{}/exe", pid);
+            let exe_path = format!("/proc/{}/exe", _pid);
             if let Ok(path) = std::fs::read_link(&exe_path) {
                 return path.to_str().map(|s| s.to_string());
             }
@@ -105,11 +104,11 @@ impl EventEnricher {
     }
 
     /// Get process working directory
-    pub fn get_process_cwd(&self, pid: u32) -> Option<String> {
+    pub fn get_process_cwd(&self, _pid: u32) -> Option<String> {
         #[cfg(target_os = "linux")]
         {
             // Read symlink /proc/[pid]/cwd
-            let cwd_path = format!("/proc/{}/cwd", pid);
+            let cwd_path = format!("/proc/{}/cwd", _pid);
             if let Ok(path) = std::fs::read_link(&cwd_path) {
                 return path.to_str().map(|s| s.to_string());
             }

@@ -4,10 +4,10 @@
 //! them via the existing notification channels.
 
 use crate::alerting::alert::{Alert, AlertSeverity, AlertType};
-use crate::alerting::notifications::{route_by_severity, NotificationChannel, NotificationConfig};
+use crate::alerting::notifications::{route_by_severity, NotificationConfig};
 use crate::database::connection::DbPool;
 use crate::database::repositories::log_sources;
-use crate::sniff::analyzer::{AnomalySeverity, LogAnomaly, LogSummary};
+use crate::sniff::analyzer::{AnomalySeverity, LogSummary};
 use anyhow::Result;
 
 /// Reports log analysis results to alert channels and persists summaries
@@ -44,13 +44,15 @@ impl Reporter {
             );
             let _ = log_sources::create_log_summary(
                 pool,
-                &summary.source_id,
-                &summary.summary_text,
-                &summary.period_start.to_rfc3339(),
-                &summary.period_end.to_rfc3339(),
-                summary.total_entries as i64,
-                summary.error_count as i64,
-                summary.warning_count as i64,
+                log_sources::CreateLogSummaryParams {
+                    source_id: &summary.source_id,
+                    summary_text: &summary.summary_text,
+                    period_start: &summary.period_start.to_rfc3339(),
+                    period_end: &summary.period_end.to_rfc3339(),
+                    total_entries: summary.total_entries as i64,
+                    error_count: summary.error_count as i64,
+                    warning_count: summary.warning_count as i64,
+                },
             );
         }
 
@@ -114,6 +116,7 @@ pub struct ReportResult {
 mod tests {
     use super::*;
     use crate::database::connection::{create_pool, init_database};
+    use crate::sniff::analyzer::LogAnomaly;
     use chrono::Utc;
 
     fn make_summary(anomalies: Vec<LogAnomaly>) -> LogSummary {
