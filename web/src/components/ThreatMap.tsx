@@ -36,7 +36,8 @@ const ThreatMap: React.FC = () => {
 
   const getTypeData = () => {
     if (!statistics) return [];
-    return Object.entries(statistics.byType).map(([name, value]) => ({
+    const byType = statistics.byType || {};
+    return Object.entries(byType).map(([name, value]) => ({
       name,
       value,
     }));
@@ -44,7 +45,8 @@ const ThreatMap: React.FC = () => {
 
   const getSeverityData = () => {
     if (!statistics) return [];
-    return Object.entries(statistics.bySeverity).map(([name, value]) => ({
+    const bySeverity = statistics.bySeverity || {};
+    return Object.entries(bySeverity).map(([name, value]) => ({
       name,
       value,
     }));
