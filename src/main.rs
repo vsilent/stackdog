@@ -104,6 +104,11 @@ async fn run_serve() -> io::Result<()> {
     info!("Database: {}", database_url);
 
     let app_url = format!("{}:{}", &app_host, &app_port);
+    let display_host = if app_host == "0.0.0.0" {
+        "127.0.0.1"
+    } else {
+        &app_host
+    };
 
     // Initialize database
     info!("Initializing database...");
@@ -127,7 +132,7 @@ async fn run_serve() -> io::Result<()> {
     info!("  GET  /api/logs/summaries      - List AI summaries");
     info!("  WS   /ws                      - WebSocket for real-time updates");
     info!("");
-    info!("Web Dashboard: http://{}:{}", app_host, app_port);
+    info!("API started on http://{}:{}", display_host, app_port);
     info!("");
 
     // Start HTTP server
