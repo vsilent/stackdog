@@ -16,6 +16,8 @@ impl AiProvider {
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "candle" => AiProvider::Candle,
+            // "ollama" uses the same OpenAI-compatible API client
+            "openai" | "ollama" => AiProvider::OpenAi,
             _ => AiProvider::OpenAi,
         }
     }
@@ -55,6 +57,8 @@ impl SniffConfig {
         sources: Option<&str>,
         interval: u64,
         ai_provider_arg: Option<&str>,
+        ai_model_arg: Option<&str>,
+        ai_api_url_arg: Option<&str>,
     ) -> Self {
         let env_sources = env::var("STACKDOG_LOG_SOURCES").unwrap_or_default();
         let mut extra_sources: Vec<String> = env_sources
@@ -101,11 +105,15 @@ impl SniffConfig {
             extra_sources,
             interval_secs,
             ai_provider: AiProvider::from_str(&ai_provider_str),
-            ai_api_url: env::var("STACKDOG_AI_API_URL")
-                .unwrap_or_else(|_| "http://localhost:11434/v1".into()),
+            ai_api_url: ai_api_url_arg
+                .map(|s| s.to_string())
+                .or_else(|| env::var("STACKDOG_AI_API_URL").ok())
+                .unwrap_or_else(|| "http://localhost:11434/v1".into()),
             ai_api_key: env::var("STACKDOG_AI_API_KEY").ok(),
-            ai_model: env::var("STACKDOG_AI_MODEL")
-                .unwrap_or_else(|_| "llama3".into()),
+            ai_model: ai_model_arg
+                .map(|s| s.to_string())
+                .or_else(|| env::var("STACKDOG_AI_MODEL").ok())
+                .unwrap_or_else(|| "llama3".into()),
             database_url: env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "./stackdog.db".into()),
         }
@@ -144,7 +152,7 @@ mod tests {
         let _lock = ENV_MUTEX.lock().unwrap();
         clear_sniff_env();
 
-        let config = SniffConfig::from_env_and_args(false, false, "./stackdog-logs/", None, 30, None);
+        let config = SniffConfig::from_env_and_args(false, false, "./stackdog-logs/", None, 30, None, None, None);
         assert!(!config.once);
         assert!(!config.consume);
         assert_eq!(config.output_dir, PathBuf::from("./stackdog-logs/"));
@@ -162,7 +170,7 @@ mod tests {
         clear_sniff_env();
 
         let config = SniffConfig::from_env_and_args(
-            true, true, "/tmp/output/", Some("/var/log/app.log"), 60, Some("candle"),
+            true, true, "/tmp/output/", Some("/var/log/app.log"), 60, Some("candle"), None, None,
         );
 
         assert!(config.once);
@@ -180,7 +188,7 @@ mod tests {
         env::set_var("STACKDOG_LOG_SOURCES", "/var/log/syslog,/var/log/auth.log");
 
         let config = SniffConfig::from_env_and_args(
-            false, false, "./stackdog-logs/", Some("/var/log/app.log,/var/log/syslog"), 30, None,
+            false, false, "./stackdog-logs/", Some("/var/log/app.log,/var/log/syslog"), 30, None, None, None,
         );
 
         assert!(config.extra_sources.contains(&"/var/log/syslog".to_string()));
@@ -201,13 +209,47 @@ mod tests {
         env::set_var("STACKDOG_SNIFF_INTERVAL", "45");
         env::set_var("STACKDOG_SNIFF_OUTPUT_DIR", "/data/logs/");
 
-        let config = SniffConfig::from_env_and_args(false, false, "./stackdog-logs/", None, 30, None);
-
+        let config = SniffConfig::from_env_and_args(false, false, "./stackdog-logs/", None, 30, None, None, None);
         assert_eq!(config.ai_api_url, "https://api.openai.com/v1");
         assert_eq!(config.ai_api_key, Some("sk-test123".into()));
         assert_eq!(config.ai_model, "gpt-4o-mini");
         assert_eq!(config.interval_secs, 45);
         assert_eq!(config.output_dir, PathBuf::from("/data/logs/"));
+
+        clear_sniff_env();
+    }
+
+    #[test]
+    fn test_ollama_provider_alias() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        clear_sniff_env();
+
+        let config = SniffConfig::from_env_and_args(
+            false, false, "./stackdog-logs/", None, 30,
+            Some("ollama"), Some("qwen2.5-coder:latest"), None,
+        );
+        // "ollama" maps to OpenAi internally (same API protocol)
+        assert_eq!(config.ai_provider, AiProvider::OpenAi);
+        assert_eq!(config.ai_model, "qwen2.5-coder:latest");
+        assert_eq!(config.ai_api_url, "http://localhost:11434/v1");
+
+        clear_sniff_env();
+    }
+
+    #[test]
+    fn test_cli_args_override_env_vars() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        clear_sniff_env();
+        env::set_var("STACKDOG_AI_MODEL", "gpt-4o-mini");
+        env::set_var("STACKDOG_AI_API_URL", "https://api.openai.com/v1");
+
+        let config = SniffConfig::from_env_and_args(
+            false, false, "./stackdog-logs/", None, 30,
+            None, Some("llama3"), Some("http://localhost:11434/v1"),
+        );
+        // CLI args take priority over env vars
+        assert_eq!(config.ai_model, "llama3");
+        assert_eq!(config.ai_api_url, "http://localhost:11434/v1");
 
         clear_sniff_env();
     }

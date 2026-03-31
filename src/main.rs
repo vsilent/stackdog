@@ -62,8 +62,8 @@ async fn main() -> io::Result<()> {
     info!("Architecture: {}", std::env::consts::ARCH);
 
     match cli.command {
-        Some(Command::Sniff { once, consume, output, sources, interval, ai_provider }) => {
-            run_sniff(once, consume, output, sources, interval, ai_provider).await
+        Some(Command::Sniff { once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url }) => {
+            run_sniff(once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url).await
         }
         // Default: serve (backward compatible)
         Some(Command::Serve) | None => run_serve().await,
@@ -130,6 +130,8 @@ async fn run_sniff(
     sources: Option<String>,
     interval: u64,
     ai_provider: Option<String>,
+    ai_model: Option<String>,
+    ai_api_url: Option<String>,
 ) -> io::Result<()> {
     let config = sniff::config::SniffConfig::from_env_and_args(
         once,
@@ -138,6 +140,8 @@ async fn run_sniff(
         sources.as_deref(),
         interval,
         ai_provider.as_deref(),
+        ai_model.as_deref(),
+        ai_api_url.as_deref(),
     );
 
     info!("🔍 Stackdog Sniff starting...");
@@ -146,6 +150,8 @@ async fn run_sniff(
     info!("Output: {}", config.output_dir.display());
     info!("Interval: {}s", config.interval_secs);
     info!("AI Provider: {:?}", config.ai_provider);
+    info!("AI Model: {}", config.ai_model);
+    info!("AI API URL: {}", config.ai_api_url);
 
     let orchestrator = sniff::SniffOrchestrator::new(config)
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;

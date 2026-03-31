@@ -41,9 +41,17 @@ pub enum Command {
         #[arg(long, default_value = "30")]
         interval: u64,
 
-        /// AI provider: "openai" or "candle"
+        /// AI provider: "openai", "ollama", or "candle"
         #[arg(long)]
         ai_provider: Option<String>,
+
+        /// AI model name (e.g. "gpt-4o-mini", "qwen2.5-coder:latest", "llama3")
+        #[arg(long)]
+        ai_model: Option<String>,
+
+        /// AI API URL (e.g. "http://localhost:11434/v1" for Ollama)
+        #[arg(long)]
+        ai_api_url: Option<String>,
     },
 }
 
@@ -68,13 +76,15 @@ mod tests {
     fn test_sniff_subcommand_defaults() {
         let cli = Cli::parse_from(["stackdog", "sniff"]);
         match cli.command {
-            Some(Command::Sniff { once, consume, output, sources, interval, ai_provider }) => {
+            Some(Command::Sniff { once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url }) => {
                 assert!(!once);
                 assert!(!consume);
                 assert_eq!(output, "./stackdog-logs/");
                 assert!(sources.is_none());
                 assert_eq!(interval, 30);
                 assert!(ai_provider.is_none());
+                assert!(ai_model.is_none());
+                assert!(ai_api_url.is_none());
             }
             _ => panic!("Expected Sniff command"),
         }
@@ -108,15 +118,19 @@ mod tests {
             "--sources", "/var/log/syslog,/var/log/auth.log",
             "--interval", "60",
             "--ai-provider", "openai",
+            "--ai-model", "gpt-4o-mini",
+            "--ai-api-url", "https://api.openai.com/v1",
         ]);
         match cli.command {
-            Some(Command::Sniff { once, consume, output, sources, interval, ai_provider }) => {
+            Some(Command::Sniff { once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url }) => {
                 assert!(once);
                 assert!(consume);
                 assert_eq!(output, "/tmp/logs/");
                 assert_eq!(sources.unwrap(), "/var/log/syslog,/var/log/auth.log");
                 assert_eq!(interval, 60);
                 assert_eq!(ai_provider.unwrap(), "openai");
+                assert_eq!(ai_model.unwrap(), "gpt-4o-mini");
+                assert_eq!(ai_api_url.unwrap(), "https://api.openai.com/v1");
             }
             _ => panic!("Expected Sniff command"),
         }
@@ -128,6 +142,23 @@ mod tests {
         match cli.command {
             Some(Command::Sniff { ai_provider, .. }) => {
                 assert_eq!(ai_provider.unwrap(), "candle");
+            }
+            _ => panic!("Expected Sniff command"),
+        }
+    }
+
+    #[test]
+    fn test_sniff_with_ollama_provider_and_model() {
+        let cli = Cli::parse_from([
+            "stackdog", "sniff",
+            "--once",
+            "--ai-provider", "ollama",
+            "--ai-model", "qwen2.5-coder:latest",
+        ]);
+        match cli.command {
+            Some(Command::Sniff { ai_provider, ai_model, .. }) => {
+                assert_eq!(ai_provider.unwrap(), "ollama");
+                assert_eq!(ai_model.unwrap(), "qwen2.5-coder:latest");
             }
             _ => panic!("Expected Sniff command"),
         }

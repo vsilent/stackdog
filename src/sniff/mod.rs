@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn test_orchestrator_creates_with_memory_db() {
         let mut config = SniffConfig::from_env_and_args(
-            true, false, "./stackdog-logs/", None, 30, None,
+            true, false, "./stackdog-logs/", None, 30, None, None, None,
         );
         config.database_url = ":memory:".into();
 
@@ -227,7 +227,7 @@ mod tests {
         let mut config = SniffConfig::from_env_and_args(
             true, false, "./stackdog-logs/",
             Some(&log_path.to_string_lossy()),
-            30, Some("candle"),
+            30, Some("candle"), None, None,
         );
         config.database_url = ":memory:".into();
 
