@@ -9,6 +9,8 @@ import ContainerList from './ContainerList';
 import ThreatMap from './ThreatMap';
 import './Dashboard.css';
 
+const DASHBOARD_LOGO_URL = 'https://github.com/user-attachments/assets/0c8a9216-8315-4ef7-9b73-d96c40521ed1';
+
 const Dashboard: React.FC = () => {
   const [securityStatus, setSecurityStatus] = useState<SecurityStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,7 +81,16 @@ const Dashboard: React.FC = () => {
     <Container fluid className="dashboard">
       <Row className="mb-4">
         <Col>
-          <h1 className="dashboard-title">🐕 Stackdog Security Dashboard</h1>
+          <h1 className="dashboard-title">
+            <img
+              src={DASHBOARD_LOGO_URL}
+              alt="Stackdog logo"
+              className="dashboard-logo"
+              width={30}
+              height={30}
+            />
+            Stackdog Security Dashboard
+          </h1>
           <p className="dashboard-subtitle">
             Real-time security monitoring for containers and Linux servers
           </p>
@@ -87,7 +98,7 @@ const Dashboard: React.FC = () => {
       </Row>
 
       {/* Security Score Card */}
-      <Row className="mb-4">
+      <Row id="overview" className="mb-4">
         <Col md={6} lg={3}>
           <SecurityScore score={securityStatus?.overallScore || 0} />
         </Col>
@@ -124,7 +135,7 @@ const Dashboard: React.FC = () => {
       </Row>
 
       {/* Threat Map */}
-      <Row className="mb-4">
+      <Row id="threats" className="mb-4">
         <Col>
           <ThreatMap />
         </Col>
@@ -132,10 +143,10 @@ const Dashboard: React.FC = () => {
 
       {/* Alerts and Containers */}
       <Row>
-        <Col lg={8}>
+        <Col id="alerts" lg={8}>
           <AlertPanel />
         </Col>
-        <Col lg={4}>
+        <Col id="containers" lg={4}>
           <ContainerList />
         </Col>
       </Row>
