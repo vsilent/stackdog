@@ -15,7 +15,7 @@ fn test_event_enricher_creation() {
 
 #[test]
 fn test_enrich_adds_timestamp() {
-    let enricher = EventEnricher::new().expect("Failed to create enricher");
+    let mut enricher = EventEnricher::new().expect("Failed to create enricher");
     let mut event = SyscallEvent::new(1234, 1000, SyscallType::Execve, Utc::now());
 
     enricher.enrich(&mut event).expect("Failed to enrich");
@@ -26,7 +26,7 @@ fn test_enrich_adds_timestamp() {
 
 #[test]
 fn test_enrich_preserves_existing_timestamp() {
-    let enricher = EventEnricher::new().expect("Failed to create enricher");
+    let mut enricher = EventEnricher::new().expect("Failed to create enricher");
     let original_timestamp = Utc::now();
     let mut event = SyscallEvent::new(1234, 1000, SyscallType::Execve, original_timestamp);
 
@@ -104,7 +104,7 @@ fn test_cgroup_parsing() {
 
 #[test]
 fn test_process_tree_enrichment() {
-    let enricher = EventEnricher::new().expect("Failed to create enricher");
+    let mut enricher = EventEnricher::new().expect("Failed to create enricher");
 
     // Test that we can get parent PID
     let ppid = enricher.get_parent_pid(1); // init process
