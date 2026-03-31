@@ -5,7 +5,7 @@
 use anyhow::{Context, Result};
 use std::process::Command;
 
-use crate::firewall::backend::{FirewallBackend, FirewallChain, FirewallRule, FirewallTable};
+use crate::firewall::backend::FirewallBackend;
 
 /// nftables table
 #[derive(Debug, Clone)]
@@ -21,9 +21,11 @@ impl NfTable {
             name: name.into(),
         }
     }
+}
 
-    fn to_string(&self) -> String {
-        format!("{} {}", self.family, self.name)
+impl std::fmt::Display for NfTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.family, self.name)
     }
 }
 
@@ -94,7 +96,7 @@ impl NfTablesBackend {
     /// Create a table
     pub fn create_table(&self, table: &NfTable) -> Result<()> {
         let output = Command::new("nft")
-            .args(&["add", "table", &table.to_string()])
+            .args(["add", "table", &table.to_string()])
             .output()
             .context("Failed to create nftables table")?;
 
@@ -111,7 +113,7 @@ impl NfTablesBackend {
     /// Delete a table
     pub fn delete_table(&self, table: &NfTable) -> Result<()> {
         let output = Command::new("nft")
-            .args(&["delete", "table", &table.to_string()])
+            .args(["delete", "table", &table.to_string()])
             .output()
             .context("Failed to delete nftables table")?;
 
@@ -135,7 +137,7 @@ impl NfTablesBackend {
         );
 
         let output = Command::new("nft")
-            .args(&["-c", &cmd])
+            .args(["-c", &cmd])
             .output()
             .context("Failed to create nftables chain")?;
 
@@ -154,7 +156,7 @@ impl NfTablesBackend {
         let cmd = format!("delete chain {} {}", chain.table.to_string(), chain.name);
 
         let output = Command::new("nft")
-            .args(&["-c", &cmd])
+            .args(["-c", &cmd])
             .output()
             .context("Failed to delete nftables chain")?;
 
@@ -178,7 +180,7 @@ impl NfTablesBackend {
         );
 
         let output = Command::new("nft")
-            .args(&["-c", &cmd])
+            .args(["-c", &cmd])
             .output()
             .context("Failed to add nftables rule")?;
 
@@ -202,7 +204,7 @@ impl NfTablesBackend {
         );
 
         let output = Command::new("nft")
-            .args(&["-c", &cmd])
+            .args(["-c", &cmd])
             .output()
             .context("Failed to delete nftables rule")?;
 
@@ -229,7 +231,7 @@ impl NfTablesBackend {
         let cmd = format!("flush chain {} {}", chain.table.to_string(), chain.name);
 
         let output = Command::new("nft")
-            .args(&["-c", &cmd])
+            .args(["-c", &cmd])
             .output()
             .context("Failed to flush nftables chain")?;
 
@@ -248,7 +250,7 @@ impl NfTablesBackend {
         let cmd = format!("list chain {} {}", chain.table.to_string(), chain.name);
 
         let output = Command::new("nft")
-            .args(&["-c", &cmd])
+            .args(["-c", &cmd])
             .output()
             .context("Failed to list nftables rules")?;
 

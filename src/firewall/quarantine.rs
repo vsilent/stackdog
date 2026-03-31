@@ -2,12 +2,12 @@
 //!
 //! Isolates compromised containers
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use crate::firewall::nftables::{NfChain, NfRule, NfTable, NfTablesBackend};
+use crate::firewall::nftables::{NfChain, NfTable, NfTablesBackend};
 
 /// Quarantine state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

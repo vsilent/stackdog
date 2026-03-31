@@ -215,9 +215,9 @@ impl ResponseExecutor {
 
     /// Execute a response action
     pub fn execute(&mut self, action: &ResponseAction) -> Result<()> {
-        let start = Utc::now();
+        let _start = Utc::now();
         let result = action.execute();
-        let end = Utc::now();
+        let _end = Utc::now();
 
         // Log the execution
         let log_entry = ResponseLog::new(
@@ -284,6 +284,10 @@ impl ResponseLog {
 
     pub fn success(&self) -> bool {
         self.success
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
     }
 
     pub fn timestamp(&self) -> DateTime<Utc> {

@@ -72,7 +72,7 @@ impl IptablesBackend {
     /// Create a chain
     pub fn create_chain(&self, chain: &IptChain) -> Result<()> {
         let output = Command::new("iptables")
-            .args(&["-t", &chain.table, "-N", &chain.name])
+            .args(["-t", &chain.table, "-N", &chain.name])
             .output()
             .context("Failed to create iptables chain")?;
 
@@ -89,7 +89,7 @@ impl IptablesBackend {
     /// Delete a chain
     pub fn delete_chain(&self, chain: &IptChain) -> Result<()> {
         let output = Command::new("iptables")
-            .args(&["-t", &chain.table, "-X", &chain.name])
+            .args(["-t", &chain.table, "-X", &chain.name])
             .output()
             .context("Failed to delete iptables chain")?;
 
@@ -148,7 +148,7 @@ impl IptablesBackend {
     /// Flush a chain
     pub fn flush_chain(&self, chain: &IptChain) -> Result<()> {
         let output = Command::new("iptables")
-            .args(&["-t", &chain.table, "-F", &chain.name])
+            .args(["-t", &chain.table, "-F", &chain.name])
             .output()
             .context("Failed to flush iptables chain")?;
 
@@ -165,7 +165,7 @@ impl IptablesBackend {
     /// List rules in a chain
     pub fn list_rules(&self, chain: &IptChain) -> Result<Vec<String>> {
         let output = Command::new("iptables")
-            .args(&["-t", &chain.table, "-L", &chain.name, "-n"])
+            .args(["-t", &chain.table, "-L", &chain.name, "-n"])
             .output()
             .context("Failed to list iptables rules")?;
 
