@@ -72,7 +72,32 @@ class ApiService {
   // Containers
   async getContainers(): Promise<Container[]> {
     const response = await this.api.get('/containers');
-    return response.data;
+    const raw = response.data as Array<Record<string, any>>;
+    return raw.map((item) => {
+      const securityStatus = item.securityStatus ?? item.security_status ?? {};
+      const networkActivity = item.networkActivity ?? item.network_activity ?? {};
+
+      return {
+        id: item.id ?? '',
+        name: item.name ?? item.id ?? 'unknown',
+        image: item.image ?? 'unknown',
+        status: item.status ?? 'Running',
+        securityStatus: {
+          state: securityStatus.state ?? 'Secure',
+          threats: securityStatus.threats ?? 0,
+          vulnerabilities: securityStatus.vulnerabilities ?? 0,
+          lastScan: securityStatus.lastScan ?? new Date().toISOString(),
+        },
+        riskScore: item.riskScore ?? item.risk_score ?? 0,
+        networkActivity: {
+          inboundConnections: networkActivity.inboundConnections ?? networkActivity.inbound_connections ?? 0,
+          outboundConnections: networkActivity.outboundConnections ?? networkActivity.outbound_connections ?? 0,
+          blockedConnections: networkActivity.blockedConnections ?? networkActivity.blocked_connections ?? 0,
+          suspiciousActivity: networkActivity.suspiciousActivity ?? networkActivity.suspicious_activity ?? false,
+        },
+        createdAt: item.createdAt ?? item.created_at ?? new Date().toISOString(),
+      } as Container;
+    });
   }
 
   async quarantineContainer(request: QuarantineRequest): Promise<void> {
