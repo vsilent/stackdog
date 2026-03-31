@@ -3,7 +3,16 @@ import { SecurityStatus, Threat, ThreatStatistics } from '../types/security';
 import { Alert, AlertStats, AlertFilter } from '../types/alerts';
 import { Container, QuarantineRequest } from '../types/containers';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+type EnvLike = {
+  REACT_APP_API_URL?: string;
+  APP_PORT?: string;
+  REACT_APP_API_PORT?: string;
+};
+
+const env = ((globalThis as unknown as { __STACKDOG_ENV__?: EnvLike }).__STACKDOG_ENV__ ??
+  {}) as EnvLike;
+const apiPort = env.REACT_APP_API_PORT || env.APP_PORT || '5555';
+const API_BASE_URL = env.REACT_APP_API_URL || `http://localhost:${apiPort}/api`;
 
 class ApiService {
   public api: AxiosInstance;

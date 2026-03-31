@@ -6,6 +6,17 @@ type WebSocketEvent =
   | 'stats:updated';
 
 type EventHandler = (data: any) => void;
+type EnvLike = {
+  REACT_APP_WS_URL?: string;
+  APP_PORT?: string;
+  REACT_APP_API_PORT?: string;
+};
+
+declare global {
+  interface Window {
+    __STACKDOG_ENV__?: EnvLike;
+  }
+}
 
 export class WebSocketService {
   private ws: WebSocket | null = null;
@@ -17,7 +28,10 @@ export class WebSocketService {
   private shouldReconnect = true;
 
   constructor(url?: string) {
-    this.url = url || process.env.REACT_APP_WS_URL || 'ws://localhost:5000/ws';
+    const env = ((globalThis as { __STACKDOG_ENV__?: EnvLike }).__STACKDOG_ENV__ ??
+      {}) as EnvLike;
+    const apiPort = env.REACT_APP_API_PORT || env.APP_PORT || '5555';
+    this.url = url || env.REACT_APP_WS_URL || `ws://localhost:${apiPort}/ws`;
   }
 
   connect(): Promise<void> {
