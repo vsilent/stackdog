@@ -2,8 +2,8 @@
 # Stackdog Security — install script
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/vsilent/stackdog/dev/install.sh | sudo bash
-#   curl -fsSL https://raw.githubusercontent.com/vsilent/stackdog/dev/install.sh | sudo bash -s -- --version v0.2.0
+#   curl -fsSL https://raw.githubusercontent.com/vsilent/stackdog/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/vsilent/stackdog/main/install.sh | sudo bash -s -- --version v0.2.0
 #
 # Installs the stackdog binary to /usr/local/bin.
 # Requires: curl, tar, sha256sum (or shasum), Linux x86_64 or aarch64.
@@ -57,11 +57,23 @@ resolve_version() {
   fi
 
   info "Fetching latest release..."
-  TAG="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-    | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+  TAG="$(
+    curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
+      | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || true
+  )"
+
+  # GitHub returns 404 for /releases/latest when there are no stable releases
+  # (for example only pre-releases). Fall back to the most recent release entry.
+  if [ -z "$TAG" ]; then
+    warn "No stable 'latest' release found, trying most recent release..."
+    TAG="$(
+      curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=1" 2>/dev/null \
+        | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || true
+    )"
+  fi
 
   if [ -z "$TAG" ]; then
-    error "Could not determine latest release. Specify a version with --version"
+    error "Could not determine latest release. Create a GitHub release, or specify one with --version (e.g. --version v0.2.0)."
   fi
 
   VERSION="$(echo "$TAG" | sed 's/^v//')"
