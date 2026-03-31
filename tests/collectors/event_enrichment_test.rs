@@ -114,7 +114,7 @@ fn test_process_tree_enrichment() {
     let enricher = EventEnricher::new().expect("Failed to create enricher");
 
     // Test that we can get parent PID
-    let _ppid = enricher.get_parent_pid(1); // init process
+    let ppid = enricher.get_parent_pid(1); // init process
 
     // PID 1 should exist on Linux
     #[cfg(target_os = "linux")]
@@ -126,7 +126,7 @@ fn test_process_comm_enrichment() {
     let enricher = EventEnricher::new().expect("Failed to create enricher");
 
     // Test that we can get process name
-    let _comm = enricher.get_process_comm(std::process::id());
+    let comm = enricher.get_process_comm(std::process::id());
 
     // Should get some process name
     #[cfg(target_os = "linux")]

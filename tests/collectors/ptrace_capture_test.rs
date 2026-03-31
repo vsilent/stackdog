@@ -35,7 +35,7 @@ mod linux_tests {
 
         std::thread::sleep(Duration::from_millis(100));
 
-        let events = monitor.poll_events();
+        let _events = monitor.poll_events();
 
         // Verify structure ready for ptrace events
         assert!(true);
@@ -53,7 +53,7 @@ mod linux_tests {
 
         std::thread::sleep(Duration::from_millis(100));
 
-        let events = monitor.poll_events();
+        let _events = monitor.poll_events();
 
         // Just verify monitor is working
         assert!(true);
