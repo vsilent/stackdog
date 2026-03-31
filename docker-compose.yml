@@ -1,19 +1,76 @@
-version: '3'
+version: '3.8'
+
 volumes:
-    db:
-      driver: local
+  db_data:
+    driver: local
+
 services:
   stackdog:
-    container_name: backend
-#    image: trydirect/stackdog:latest
+    container_name: stackdog
     build:
       context: .
       dockerfile: docker/local/Dockerfile
-    entrypoint: [ 'bash', '-c', 'sleep infinity' ]
-#    restart: always
+      target: development
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Waiting for dependencies..."
+        sleep 5
+        echo "Starting Stackdog..."
+        cargo run --bin stackdog
     ports:
-    - "5000:5000"
-    env_file: .env
+      - "${APP_PORT:-8080}:${APP_PORT:-8080}"
+    env_file:
+      - .env
+    environment:
+      - RUST_LOG=debug
+      - RUST_BACKTRACE=full
     volumes:
-      - db:/app/db
+      - db_data:/app/db
+      - ./.env:/app/.env:ro
+      - ./src:/app/src:ro
+      - ./Cargo.toml:/app/Cargo.toml:ro
+      - ./migrations:/app/migrations:ro
+    restart: unless-stopped
+    networks:
+      - stackdog_network
 
+  # Optional: PostgreSQL (if you want to switch from SQLite)
+  # postgres:
+  #   container_name: stackdog_postgres
+  #   image: postgres:15-alpine
+  #   environment:
+  #     POSTGRES_USER: stackdog
+  #     POSTGRES_PASSWORD: stackdog_password
+  #     POSTGRES_DB: stackdog
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+  #   networks:
+  #     - stackdog_network
+  #   profiles:
+  #     - postgres
+
+  # Optional: Adminer for database management
+  adminer:
+    container_name: stackdog_adminer
+    image: adminer:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+    profiles:
+      - adminer
+    networks:
+      - stackdog_network
+    depends_on:
+      - postgres
+
+networks:
+  stackdog_network:
+    driver: bridge
+
+# Uncomment to use PostgreSQL instead of SQLite
+# volumes:
+#   postgres_data:

@@ -12,7 +12,8 @@ on:
 jobs:
   cicd-linux-docker:
     name: Cargo and npm build
-    runs-on: ubuntu-latest
+    #runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -26,7 +27,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache cargo registry
-        uses: actions/cache@v2.1.4
+        uses: actions/cache@v2.1.6
         with:
           path: ~/.cargo/registry
           key: docker-registry-${{ hashFiles('**/Cargo.lock') }}
@@ -35,7 +36,7 @@ jobs:
             docker-
 
       - name: Cache cargo index
-        uses: actions/cache@v2.1.4
+        uses: actions/cache@v2.1.6
         with:
           path: ~/.cargo/git
           key: docker-index-${{ hashFiles('**/Cargo.lock') }}
@@ -48,7 +49,7 @@ jobs:
           head -c16 /dev/urandom > src/secret.key
 
       - name: Cache cargo build
-        uses: actions/cache@v2.1.4
+        uses: actions/cache@v2.1.6
         with:
           path: target
           key: docker-build-${{ hashFiles('**/Cargo.lock') }}
@@ -135,7 +136,8 @@ jobs:
 
   cicd-docker:
     name: CICD Docker
-    runs-on: ubuntu-latest
+    #runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     needs: cicd-linux-docker
     steps:
       - name: Download app archive

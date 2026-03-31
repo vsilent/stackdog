@@ -1,0 +1,149 @@
+//! Event enrichment
+//!
+//! Enriches syscall events with additional context (container ID, process info, etc.)
+
+use anyhow::Result;
+use crate::events::syscall::SyscallEvent;
+
+/// Event enricher
+pub struct EventEnricher {
+    // Cache for process information
+    process_cache: std::collections::HashMap<u32, ProcessInfo>,
+}
+
+#[derive(Debug, Clone)]
+struct ProcessInfo {
+    pid: u32,
+    ppid: u32,
+    comm: Option<String>,
+}
+
+impl EventEnricher {
+    /// Create a new event enricher
+    pub fn new() -> Result<Self> {
+        Ok(Self {
+            process_cache: std::collections::HashMap::new(),
+        })
+    }
+    
+    /// Enrich an event with additional information
+    pub fn enrich(&mut self, event: &mut SyscallEvent) -> Result<()> {
+        // Add timestamp normalization (already done in event creation)
+        // Add process information
+        self.enrich_process_info(event);
+        
+        Ok(())
+    }
+    
+    /// Enrich event with process information
+    fn enrich_process_info(&mut self, event: &mut SyscallEvent) {
+        // Try to get process comm if not already set
+        if event.comm.is_none() {
+            event.comm = self.get_process_comm(event.pid);
+        }
+    }
+    
+    /// Get parent PID for a process
+    pub fn get_parent_pid(&self, pid: u32) -> Option<u32> {
+        #[cfg(target_os = "linux")]
+        {
+            // Read from /proc/[pid]/stat
+            let stat_path = format!("/proc/{}/stat", pid);
+            if let Ok(content) = std::fs::read_to_string(&stat_path) {
+                // Parse ppid from stat file (field 4)
+                let parts: Vec<&str> = content.split_whitespace().collect();
+                if parts.len() >= 4 {
+                    if let Ok(ppid) = parts[3].parse::<u32>() {
+                        return Some(ppid);
+                    }
+                }
+            }
+        }
+        
+        None
+    }
+    
+    /// Get process command name
+    pub fn get_process_comm(&self, pid: u32) -> Option<String> {
+        #[cfg(target_os = "linux")]
+        {
+            // Read from /proc/[pid]/comm
+            let comm_path = format!("/proc/{}/comm", pid);
+            if let Ok(content) = std::fs::read_to_string(&comm_path) {
+                return Some(content.trim().to_string());
+            }
+            
+            // Alternative: read from /proc/[pid]/cmdline
+            let cmdline_path = format!("/proc/{}/cmdline", pid);
+            if let Ok(content) = std::fs::read_to_string(&cmdline_path) {
+                if let Some(first_null) = content.find('\0') {
+                    let path = &content[..first_null];
+                    // Get basename
+                    if let Some(last_slash) = path.rfind('/') {
+                        return Some(path[last_slash + 1..].to_string());
+                    }
+                    return Some(path.to_string());
+                }
+            }
+        }
+        
+        None
+    }
+    
+    /// Get process executable path
+    pub fn get_process_exe(&self, pid: u32) -> Option<String> {
+        #[cfg(target_os = "linux")]
+        {
+            // Read symlink /proc/[pid]/exe
+            let exe_path = format!("/proc/{}/exe", pid);
+            if let Ok(path) = std::fs::read_link(&exe_path) {
+                return path.to_str().map(|s| s.to_string());
+            }
+        }
+        
+        None
+    }
+    
+    /// Get process working directory
+    pub fn get_process_cwd(&self, pid: u32) -> Option<String> {
+        #[cfg(target_os = "linux")]
+        {
+            // Read symlink /proc/[pid]/cwd
+            let cwd_path = format!("/proc/{}/cwd", pid);
+            if let Ok(path) = std::fs::read_link(&cwd_path) {
+                return path.to_str().map(|s| s.to_string());
+            }
+        }
+        
+        None
+    }
+}
+
+impl Default for EventEnricher {
+    fn default() -> Self {
+        Self::new().expect("Failed to create EventEnricher")
+    }
+}
+
+/// Normalize timestamp to UTC
+pub fn normalize_timestamp(ts: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
+    ts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    #[test]
+    fn test_enricher_creation() {
+        let enricher = EventEnricher::new();
+        assert!(enricher.is_ok());
+    }
+    
+    #[test]
+    fn test_normalize_timestamp() {
+        let now = Utc::now();
+        let normalized = normalize_timestamp(now);
+        assert_eq!(now, normalized);
+    }
+}
