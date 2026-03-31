@@ -9,9 +9,18 @@
 }
 
 .sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 1.1rem;
   font-weight: 700;
   margin-bottom: 20px;
+}
+
+.sidebar-logo {
+  width: 39px;
+  height: 39px;
+  object-fit: contain;
 }
 
 .sidebar-nav {

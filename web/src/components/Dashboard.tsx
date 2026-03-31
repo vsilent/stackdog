@@ -9,8 +9,6 @@ import ContainerList from './ContainerList';
 import ThreatMap from './ThreatMap';
 import './Dashboard.css';
 
-const DASHBOARD_LOGO_URL = 'https://github.com/user-attachments/assets/0c8a9216-8315-4ef7-9b73-d96c40521ed1';
-
 const Dashboard: React.FC = () => {
   const [securityStatus, setSecurityStatus] = useState<SecurityStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -81,16 +79,10 @@ const Dashboard: React.FC = () => {
     <Container fluid className="dashboard">
       <Row className="mb-4">
         <Col>
-          <h1 className="dashboard-title">
-            <img
-              src={DASHBOARD_LOGO_URL}
-              alt="Stackdog logo"
-              className="dashboard-logo"
-              width={30}
-              height={30}
-            />
-            Stackdog Security Dashboard
-          </h1>
+          <div className="dashboard-topbar">
+            <div className="dashboard-topbar-spacer" />
+            <button className="dashboard-actions-btn" aria-label="Actions menu">...</button>
+          </div>
           <p className="dashboard-subtitle">
             Real-time security monitoring for containers and Linux servers
           </p>
