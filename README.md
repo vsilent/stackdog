@@ -47,13 +47,15 @@
 ### Install with curl (Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vsilent/stackdog/dev/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/vsilent/stackdog/main/install.sh | sudo bash
 ```
 
 Pin a specific version:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vsilent/stackdog/dev/install.sh | sudo bash -s -- --version v0.2.0
+curl -fsSL https://raw.githubusercontent.com/vsilent/stackdog/main/install.sh | sudo bash -s -- --version v0.2.1
 ```
+
+If your repository has no published stable release yet, use `--version` explicitly.
 
 ### Run as Binary
 
