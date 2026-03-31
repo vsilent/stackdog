@@ -96,7 +96,7 @@ impl NfTablesBackend {
     /// Create a table
     pub fn create_table(&self, table: &NfTable) -> Result<()> {
         let output = Command::new("nft")
-            .args(["add", "table", &table.to_string()])
+            .args(["add", "table", &table])
             .output()
             .context("Failed to create nftables table")?;
 
@@ -113,7 +113,7 @@ impl NfTablesBackend {
     /// Delete a table
     pub fn delete_table(&self, table: &NfTable) -> Result<()> {
         let output = Command::new("nft")
-            .args(["delete", "table", &table.to_string()])
+            .args(["delete", "table", &table])
             .output()
             .context("Failed to delete nftables table")?;
 
@@ -131,9 +131,7 @@ impl NfTablesBackend {
     pub fn create_chain(&self, chain: &NfChain) -> Result<()> {
         let cmd = format!(
             "add chain {} {} {{ type {} hook input priority 0; }}",
-            chain.table.to_string(),
-            chain.name,
-            chain.chain_type
+            chain.table, chain.name, chain.chain_type
         );
 
         let output = Command::new("nft")
@@ -153,7 +151,7 @@ impl NfTablesBackend {
 
     /// Delete a chain
     pub fn delete_chain(&self, chain: &NfChain) -> Result<()> {
-        let cmd = format!("delete chain {} {}", chain.table.to_string(), chain.name);
+        let cmd = format!("delete chain {} {}", chain.table, chain.name);
 
         let output = Command::new("nft")
             .args(["-c", &cmd])
@@ -174,9 +172,7 @@ impl NfTablesBackend {
     pub fn add_rule(&self, rule: &NfRule) -> Result<()> {
         let cmd = format!(
             "add rule {} {} {}",
-            rule.chain.table.to_string(),
-            rule.chain.name,
-            rule.rule_spec
+            rule.chain.table, rule.chain.name, rule.rule_spec
         );
 
         let output = Command::new("nft")
@@ -198,9 +194,7 @@ impl NfTablesBackend {
     pub fn delete_rule(&self, rule: &NfRule) -> Result<()> {
         let cmd = format!(
             "delete rule {} {} {}",
-            rule.chain.table.to_string(),
-            rule.chain.name,
-            rule.rule_spec
+            rule.chain.table, rule.chain.name, rule.rule_spec
         );
 
         let output = Command::new("nft")
@@ -228,7 +222,7 @@ impl NfTablesBackend {
 
     /// Flush a chain
     pub fn flush_chain(&self, chain: &NfChain) -> Result<()> {
-        let cmd = format!("flush chain {} {}", chain.table.to_string(), chain.name);
+        let cmd = format!("flush chain {} {}", chain.table, chain.name);
 
         let output = Command::new("nft")
             .args(["-c", &cmd])
@@ -247,7 +241,7 @@ impl NfTablesBackend {
 
     /// List rules in a chain
     pub fn list_rules(&self, chain: &NfChain) -> Result<Vec<String>> {
-        let cmd = format!("list chain {} {}", chain.table.to_string(), chain.name);
+        let cmd = format!("list chain {} {}", chain.table, chain.name);
 
         let output = Command::new("nft")
             .args(["-c", &cmd])
