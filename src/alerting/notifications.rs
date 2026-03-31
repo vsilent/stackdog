@@ -111,14 +111,39 @@ impl NotificationChannel {
         Ok(NotificationResult::Success("sent to console".to_string()))
     }
     
-    /// Send to Slack
+    /// Send to Slack via incoming webhook
     fn send_slack(&self, alert: &Alert, config: &NotificationConfig) -> Result<NotificationResult> {
-        // In production, this would make HTTP request to Slack webhook
-        // For now, just log
-        if config.slack_webhook().is_some() {
-            log::info!("Would send to Slack: {}", alert.message());
-            Ok(NotificationResult::Success("sent to Slack".to_string()))
+        if let Some(webhook_url) = config.slack_webhook() {
+            let payload = build_slack_message(alert);
+            log::debug!("Sending Slack notification to webhook");
+            log::trace!("Slack payload: {}", payload);
+
+            // Blocking HTTP POST — notification sending is synchronous in this codebase
+            let client = reqwest::blocking::Client::new();
+            match client
+                .post(webhook_url)
+                .header("Content-Type", "application/json")
+                .body(payload)
+                .send()
+            {
+                Ok(resp) => {
+                    if resp.status().is_success() {
+                        log::info!("Slack notification sent successfully");
+                        Ok(NotificationResult::Success("sent to Slack".to_string()))
+                    } else {
+                        let status = resp.status();
+                        let body = resp.text().unwrap_or_default();
+                        log::warn!("Slack API returned {}: {}", status, body);
+                        Ok(NotificationResult::Failure(format!("Slack returned {}: {}", status, body)))
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to send Slack notification: {}", e);
+                    Ok(NotificationResult::Failure(format!("Slack request failed: {}", e)))
+                }
+            }
         } else {
+            log::debug!("Slack webhook not configured, skipping");
             Ok(NotificationResult::Failure("Slack webhook not configured".to_string()))
         }
     }
@@ -211,27 +236,19 @@ pub fn severity_to_slack_color(severity: AlertSeverity) -> &'static str {
 
 /// Build Slack message payload
 pub fn build_slack_message(alert: &Alert) -> String {
-    format!(
-        r#"{{
-            "text": "Security Alert",
-            "attachments": [{{
-                "color": "{}",
-                "title": "{:?} ",
-                "text": "{}",
-                "fields": [
-                    {{"title": "Severity", "value": "{}", "short": true}},
-                    {{"title": "Status", "value": "{}", "short": true}},
-                    {{"title": "Time", "value": "{}", "short": true}}
-                ]
-            }}]
-        }}"#,
-        severity_to_slack_color(alert.severity()),
-        alert.alert_type(),
-        alert.message(),
-        alert.severity(),
-        alert.status(),
-        alert.timestamp()
-    )
+    serde_json::json!({
+        "text": "🐕 Stackdog Security Alert",
+        "attachments": [{
+            "color": severity_to_slack_color(alert.severity()),
+            "title": format!("{:?}", alert.alert_type()),
+            "text": alert.message(),
+            "fields": [
+                {"title": "Severity", "value": alert.severity().to_string(), "short": true},
+                {"title": "Status", "value": alert.status().to_string(), "short": true},
+                {"title": "Time", "value": alert.timestamp().to_rfc3339(), "short": true}
+            ]
+        }]
+    }).to_string()
 }
 
 /// Build webhook payload

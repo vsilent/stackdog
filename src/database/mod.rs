@@ -7,3 +7,6 @@ pub mod repositories;
 pub use connection::{create_pool, init_database, DbPool};
 pub use models::*;
 pub use repositories::alerts::*;
+
+/// Marker struct for module tests
+pub struct DatabaseMarker;

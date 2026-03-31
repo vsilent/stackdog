@@ -196,16 +196,16 @@ mod tests {
     
     #[test]
     fn test_parse_docker_cgroup() {
-        let cgroup = "12:memory:/docker/abc123def456789012345678901234567890";
+        let cgroup = "12:memory:/docker/abc123def456abc123def456abc123def456abc123def456abc123def456abcd";
         let result = ContainerDetector::parse_container_from_cgroup(cgroup);
-        assert_eq!(result, Some("abc123def456789012345678901234567890".to_string()));
+        assert_eq!(result, Some("abc123def456abc123def456abc123def456abc123def456abc123def456abcd".to_string()));
     }
-    
+
     #[test]
     fn test_parse_kubernetes_cgroup() {
-        let cgroup = "11:cpu:/kubepods/pod123/def456abc789012345678901234567890";
+        let cgroup = "11:cpu:/kubepods/pod123/def456abc123def456abc123def456abc123def456abc123def456abc123def4";
         let result = ContainerDetector::parse_container_from_cgroup(cgroup);
-        assert_eq!(result, Some("def456abc789012345678901234567890".to_string()));
+        assert_eq!(result, Some("def456abc123def456abc123def456abc123def456abc123def456abc123def4".to_string()));
     }
     
     #[test]
@@ -215,6 +215,7 @@ mod tests {
         assert_eq!(result, None);
     }
     
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_validate_valid_container_id() {
         let detector = ContainerDetector::new().unwrap();
@@ -226,6 +227,7 @@ mod tests {
         assert!(detector.validate_container_id("abc123def456"));
     }
     
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_validate_invalid_container_id() {
         let detector = ContainerDetector::new().unwrap();

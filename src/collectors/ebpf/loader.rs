@@ -97,12 +97,15 @@ impl EbpfLoader {
             if _bytes.is_empty() {
                 return Err(LoadError::LoadFailed("Empty program bytes".to_string()));
             }
-            
-            // TODO: Implement actual loading when eBPF programs are ready
-            // For now, this is a stub that will be implemented in TASK-004
+
+            let bpf = aya::Bpf::load(_bytes)
+                .map_err(|e| LoadError::LoadFailed(e.to_string()))?;
+            self.bpf = Some(bpf);
+
+            log::info!("eBPF program loaded ({} bytes)", _bytes.len());
             Ok(())
         }
-        
+
         #[cfg(not(all(target_os = "linux", feature = "ebpf")))]
         {
             Err(LoadError::NotLinux)
@@ -132,22 +135,79 @@ impl EbpfLoader {
     pub fn attach_program(&mut self, _program_name: &str) -> Result<(), LoadError> {
         #[cfg(all(target_os = "linux", feature = "ebpf"))]
         {
-            // TODO: Implement actual attachment
-            // For now, just mark as attached
+            let (category, tp_name) = program_to_tracepoint(_program_name)
+                .ok_or_else(|| LoadError::ProgramNotFound(
+                    format!("No tracepoint mapping for '{}'", _program_name)
+                ))?;
+
+            let bpf = self.bpf.as_mut()
+                .ok_or_else(|| LoadError::LoadFailed(
+                    "No eBPF program loaded; call load_program_from_bytes first".to_string()
+                ))?;
+
+            let prog: &mut aya::programs::TracePoint = bpf
+                .program_mut(_program_name)
+                .ok_or_else(|| LoadError::ProgramNotFound(_program_name.to_string()))?
+                .try_into()
+                .map_err(|e: aya::programs::ProgramError| LoadError::AttachFailed(e.to_string()))?;
+
+            prog.load()
+                .map_err(|e| LoadError::AttachFailed(format!("load '{}': {}", _program_name, e)))?;
+
+            prog.attach(category, tp_name)
+                .map_err(|e| LoadError::AttachFailed(
+                    format!("attach '{}/{}': {}", category, tp_name, e)
+                ))?;
+
             self.loaded_programs.insert(
                 _program_name.to_string(),
-                ProgramInfo {
-                    name: _program_name.to_string(),
-                    attached: true,
-                },
+                ProgramInfo { name: _program_name.to_string(), attached: true },
             );
+
+            log::info!("eBPF program '{}' attached to {}/{}", _program_name, category, tp_name);
             Ok(())
         }
-        
+
         #[cfg(not(all(target_os = "linux", feature = "ebpf")))]
         {
             Err(LoadError::NotLinux)
         }
+    }
+
+    /// Attach all known syscall tracepoint programs
+    pub fn attach_all_programs(&mut self) -> Result<(), LoadError> {
+        #[cfg(all(target_os = "linux", feature = "ebpf"))]
+        {
+            for name in &["trace_execve", "trace_connect", "trace_openat", "trace_ptrace"] {
+                if let Err(e) = self.attach_program(name) {
+                    log::warn!("Failed to attach '{}': {}", name, e);
+                }
+            }
+            Ok(())
+        }
+
+        #[cfg(not(all(target_os = "linux", feature = "ebpf")))]
+        {
+            Err(LoadError::NotLinux)
+        }
+    }
+
+    /// Extract the EVENTS ring buffer map from the loaded eBPF program.
+    /// Must be called after load_program_from_bytes and before the Bpf object is dropped.
+    #[cfg(all(target_os = "linux", feature = "ebpf"))]
+    pub fn take_ring_buf(&mut self) -> Result<aya::maps::RingBuf<aya::maps::MapData>, LoadError> {
+        let bpf = self.bpf.as_mut()
+            .ok_or_else(|| LoadError::LoadFailed(
+                "No eBPF program loaded".to_string()
+            ))?;
+
+        let map = bpf.take_map("EVENTS")
+            .ok_or_else(|| LoadError::LoadFailed(
+                "EVENTS ring buffer map not found in eBPF program".to_string()
+            ))?;
+
+        aya::maps::RingBuf::try_from(map)
+            .map_err(|e| LoadError::LoadFailed(format!("Failed to create ring buffer: {}", e)))
     }
     
     /// Detach a program
@@ -201,8 +261,24 @@ impl EbpfLoader {
 }
 
 impl Default for EbpfLoader {
-    fn default() -> Result<Self, LoadError> {
-        Self::new()
+    fn default() -> Self {
+        Self {
+            #[cfg(all(target_os = "linux", feature = "ebpf"))]
+            bpf: None,
+            loaded_programs: HashMap::new(),
+            kernel_version: None,
+        }
+    }
+}
+
+/// Map program name to its tracepoint (category, name) for aya attachment.
+fn program_to_tracepoint(name: &str) -> Option<(&'static str, &'static str)> {
+    match name {
+        "trace_execve"  => Some(("syscalls", "sys_enter_execve")),
+        "trace_connect" => Some(("syscalls", "sys_enter_connect")),
+        "trace_openat"  => Some(("syscalls", "sys_enter_openat")),
+        "trace_ptrace"  => Some(("syscalls", "sys_enter_ptrace")),
+        _ => None,
     }
 }
 

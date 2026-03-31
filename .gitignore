@@ -37,3 +37,4 @@ Cargo.lock
 =======
 *.db
 >>>>>>> testing
+docs/tasks/
