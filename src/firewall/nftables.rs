@@ -95,8 +95,9 @@ impl NfTablesBackend {
 
     /// Create a table
     pub fn create_table(&self, table: &NfTable) -> Result<()> {
+        let table_str = table.to_string();
         let output = Command::new("nft")
-            .args(["add", "table", &table])
+            .args(["add", "table", &table_str])
             .output()
             .context("Failed to create nftables table")?;
 
@@ -112,8 +113,9 @@ impl NfTablesBackend {
 
     /// Delete a table
     pub fn delete_table(&self, table: &NfTable) -> Result<()> {
+        let table_str = table.to_string();
         let output = Command::new("nft")
-            .args(["delete", "table", &table])
+            .args(["delete", "table", &table_str])
             .output()
             .context("Failed to delete nftables table")?;
 
