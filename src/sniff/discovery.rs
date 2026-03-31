@@ -74,9 +74,14 @@ const SYSTEM_LOG_PATHS: &[&str] = &[
 
 /// Discover system log files that exist and are readable
 pub fn discover_system_logs() -> Vec<LogSource> {
-    SYSTEM_LOG_PATHS
+    log::debug!("Probing {} system log paths", SYSTEM_LOG_PATHS.len());
+    let sources: Vec<LogSource> = SYSTEM_LOG_PATHS
         .iter()
-        .filter(|path| Path::new(path).exists())
+        .filter(|path| {
+            let exists = Path::new(path).exists();
+            log::trace!("System log {} — exists: {}", path, exists);
+            exists
+        })
         .map(|path| {
             let name = Path::new(path)
                 .file_name()
@@ -85,14 +90,25 @@ pub fn discover_system_logs() -> Vec<LogSource> {
                 .to_string();
             LogSource::new(LogSourceType::SystemLog, path.to_string(), name)
         })
-        .collect()
+        .collect();
+    log::debug!("Discovered {} system log sources", sources.len());
+    sources
 }
 
 /// Register user-configured custom log file paths
 pub fn discover_custom_sources(paths: &[String]) -> Vec<LogSource> {
+    log::debug!("Checking {} custom source paths", paths.len());
     paths
         .iter()
-        .filter(|path| Path::new(path.as_str()).exists())
+        .filter(|path| {
+            let exists = Path::new(path.as_str()).exists();
+            if exists {
+                log::debug!("Custom source found: {}", path);
+            } else {
+                log::debug!("Custom source not found (skipped): {}", path);
+            }
+            exists
+        })
         .map(|path| {
             let name = Path::new(path.as_str())
                 .file_name()
@@ -133,15 +149,27 @@ pub async fn discover_all(extra_paths: &[String]) -> Result<Vec<LogSource>> {
     let mut sources = Vec::new();
 
     // System logs
-    sources.extend(discover_system_logs());
+    let sys = discover_system_logs();
+    log::debug!("System log discovery: {} sources", sys.len());
+    sources.extend(sys);
 
     // Custom paths
-    sources.extend(discover_custom_sources(extra_paths));
+    let custom = discover_custom_sources(extra_paths);
+    log::debug!("Custom source discovery: {} sources", custom.len());
+    sources.extend(custom);
 
     // Docker containers
     match discover_docker_sources().await {
-        Ok(docker_sources) => sources.extend(docker_sources),
+        Ok(docker_sources) => {
+            log::debug!("Docker discovery: {} containers", docker_sources.len());
+            sources.extend(docker_sources);
+        }
         Err(e) => log::warn!("Docker discovery failed: {}", e),
+    }
+
+    log::debug!("Total discovered sources: {}", sources.len());
+    for s in &sources {
+        log::debug!("  [{:?}] {} — {}", s.source_type, s.name, s.path_or_id);
     }
 
     Ok(sources)

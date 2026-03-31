@@ -129,6 +129,38 @@ struct ChatMessage {
     content: String,
 }
 
+/// Extract JSON from LLM response, handling markdown fences, preamble text, etc.
+fn extract_json(content: &str) -> &str {
+    let trimmed = content.trim();
+
+    // Try ```json ... ``` fence
+    if let Some(start) = trimmed.find("```json") {
+        let after_fence = &trimmed[start + 7..];
+        if let Some(end) = after_fence.find("```") {
+            return after_fence[..end].trim();
+        }
+    }
+
+    // Try ``` ... ``` fence (no language tag)
+    if let Some(start) = trimmed.find("```") {
+        let after_fence = &trimmed[start + 3..];
+        if let Some(end) = after_fence.find("```") {
+            return after_fence[..end].trim();
+        }
+    }
+
+    // Try to find raw JSON object
+    if let Some(start) = trimmed.find('{') {
+        if let Some(end) = trimmed.rfind('}') {
+            if end > start {
+                return &trimmed[start..=end];
+            }
+        }
+    }
+
+    trimmed
+}
+
 /// Parse LLM severity string to enum
 fn parse_severity(s: &str) -> AnomalySeverity {
     match s.to_lowercase().as_str() {
@@ -141,8 +173,22 @@ fn parse_severity(s: &str) -> AnomalySeverity {
 
 /// Parse the LLM JSON response into a LogSummary
 fn parse_llm_response(source_id: &str, entries: &[LogEntry], raw_json: &str) -> Result<LogSummary> {
+    log::debug!("Parsing LLM response ({} bytes) for source {}", raw_json.len(), source_id);
+    log::trace!("Raw LLM response:\n{}", raw_json);
+
     let analysis: LlmAnalysis = serde_json::from_str(raw_json)
-        .context("Failed to parse LLM response as JSON")?;
+        .context(format!(
+            "Failed to parse LLM response as JSON. Response starts with: {}",
+            &raw_json[..raw_json.len().min(200)]
+        ))?;
+
+    log::debug!(
+        "LLM analysis parsed — summary: {:?}, errors: {:?}, warnings: {:?}, anomalies: {}",
+        analysis.summary.as_deref().map(|s| &s[..s.len().min(80)]),
+        analysis.error_count,
+        analysis.warning_count,
+        analysis.anomalies.as_ref().map(|a| a.len()).unwrap_or(0),
+    );
 
     let anomalies = analysis.anomalies.unwrap_or_default()
         .into_iter()
@@ -183,6 +229,7 @@ fn entry_time_range(entries: &[LogEntry]) -> (DateTime<Utc>, DateTime<Utc>) {
 impl LogAnalyzer for OpenAiAnalyzer {
     async fn summarize(&self, entries: &[LogEntry]) -> Result<LogSummary> {
         if entries.is_empty() {
+            log::debug!("OpenAiAnalyzer: no entries to analyze, returning empty summary");
             return Ok(LogSummary {
                 source_id: String::new(),
                 period_start: Utc::now(),
@@ -199,7 +246,13 @@ impl LogAnalyzer for OpenAiAnalyzer {
         let prompt = Self::build_prompt(entries);
         let source_id = &entries[0].source_id;
 
-        let mut request_body = serde_json::json!({
+        log::debug!(
+            "Sending {} entries to AI API (model: {}, url: {})",
+            entries.len(), self.model, self.api_url
+        );
+        log::trace!("Prompt:\n{}", prompt);
+
+        let request_body = serde_json::json!({
             "model": self.model,
             "messages": [
                 {
@@ -215,12 +268,16 @@ impl LogAnalyzer for OpenAiAnalyzer {
         });
 
         let url = format!("{}/chat/completions", self.api_url.trim_end_matches('/'));
+        log::debug!("POST {}", url);
 
         let mut req = self.client.post(&url)
             .header("Content-Type", "application/json");
 
         if let Some(ref key) = self.api_key {
+            log::debug!("Using API key: {}...{}", &key[..key.len().min(4)], &key[key.len().saturating_sub(4)..]);
             req = req.header("Authorization", format!("Bearer {}", key));
+        } else {
+            log::debug!("No API key configured (using keyless access)");
         }
 
         let response = req
@@ -230,26 +287,32 @@ impl LogAnalyzer for OpenAiAnalyzer {
             .context("Failed to send request to AI API")?;
 
         let status = response.status();
+        log::debug!("AI API response status: {}", status);
+
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
+            log::debug!("AI API error body: {}", body);
             anyhow::bail!("AI API returned status {}: {}", status, body);
         }
 
-        let completion: ChatCompletionResponse = response.json().await
-            .context("Failed to parse AI API response")?;
+        let raw_body = response.text().await
+            .context("Failed to read AI API response body")?;
+        log::debug!("AI API response body ({} bytes)", raw_body.len());
+        log::trace!("AI API raw response:\n{}", raw_body);
+
+        let completion: ChatCompletionResponse = serde_json::from_str(&raw_body)
+            .context("Failed to parse AI API response as ChatCompletion")?;
 
         let content = completion.choices
             .first()
             .map(|c| c.message.content.clone())
             .unwrap_or_default();
 
-        // Strip markdown code fences if present
-        let json_str = content
-            .trim()
-            .strip_prefix("```json").unwrap_or(&content)
-            .strip_prefix("```").unwrap_or(&content)
-            .strip_suffix("```").unwrap_or(&content)
-            .trim();
+        log::debug!("LLM content ({} chars): {}", content.len(), &content[..content.len().min(200)]);
+
+        // Extract JSON from response — LLMs often wrap in markdown code fences
+        let json_str = extract_json(&content);
+        log::debug!("Extracted JSON ({} chars)", json_str.len());
 
         parse_llm_response(source_id, entries, json_str)
     }
@@ -275,6 +338,7 @@ impl PatternAnalyzer {
 impl LogAnalyzer for PatternAnalyzer {
     async fn summarize(&self, entries: &[LogEntry]) -> Result<LogSummary> {
         if entries.is_empty() {
+            log::debug!("PatternAnalyzer: no entries to analyze");
             return Ok(LogSummary {
                 source_id: String::new(),
                 period_start: Utc::now(),
@@ -293,10 +357,19 @@ impl LogAnalyzer for PatternAnalyzer {
         let warning_count = Self::count_pattern(entries, &["warn", "warning"]);
         let (start, end) = entry_time_range(entries);
 
+        log::debug!(
+            "PatternAnalyzer [{}]: {} entries, {} errors, {} warnings",
+            source_id, entries.len(), error_count, warning_count
+        );
+
         let mut anomalies = Vec::new();
 
         // Detect error spikes
         if error_count > entries.len() / 4 {
+            log::debug!(
+                "Error spike detected: {} errors / {} entries (threshold: >25%)",
+                error_count, entries.len()
+            );
             if let Some(sample) = entries.iter().find(|e| e.line.to_lowercase().contains("error")) {
                 anomalies.push(LogAnomaly {
                     description: format!("High error rate: {} errors in {} entries", error_count, entries.len()),
@@ -422,6 +495,36 @@ mod tests {
         let entries = make_entries(&["line"]);
         let result = parse_llm_response("src-1", &entries, "not json");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_json_plain() {
+        let input = r#"{"summary": "ok"}"#;
+        assert_eq!(extract_json(input), input);
+    }
+
+    #[test]
+    fn test_extract_json_markdown_fence() {
+        let input = "```json\n{\"summary\": \"ok\"}\n```";
+        assert_eq!(extract_json(input), r#"{"summary": "ok"}"#);
+    }
+
+    #[test]
+    fn test_extract_json_plain_fence() {
+        let input = "```\n{\"summary\": \"ok\"}\n```";
+        assert_eq!(extract_json(input), r#"{"summary": "ok"}"#);
+    }
+
+    #[test]
+    fn test_extract_json_with_preamble() {
+        let input = "Here is the analysis:\n{\"summary\": \"ok\", \"error_count\": 0}";
+        assert_eq!(extract_json(input), r#"{"summary": "ok", "error_count": 0}"#);
+    }
+
+    #[test]
+    fn test_extract_json_with_trailing_text() {
+        let input = "Sure! {\"summary\": \"ok\"} Hope this helps!";
+        assert_eq!(extract_json(input), r#"{"summary": "ok"}"#);
     }
 
     #[test]

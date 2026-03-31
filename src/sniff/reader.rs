@@ -50,14 +50,17 @@ impl FileLogReader {
     fn read_lines_from_offset(&mut self) -> Result<Vec<LogEntry>> {
         let path = Path::new(&self.path);
         if !path.exists() {
+            log::debug!("Log file does not exist: {}", self.path);
             return Ok(Vec::new());
         }
 
         let file = File::open(path)?;
         let file_len = file.metadata()?.len();
+        log::debug!("Reading {} (size: {} bytes, offset: {})", self.path, file_len, self.offset);
 
         // Handle file truncation (log rotation)
         if self.offset > file_len {
+            log::debug!("File truncated (rotation?), resetting offset from {} to 0", self.offset);
             self.offset = 0;
         }
 
@@ -83,6 +86,7 @@ impl FileLogReader {
         }
 
         self.offset = reader.stream_position()?;
+        log::debug!("Read {} entries from {}, new offset: {}", entries.len(), self.path, self.offset);
         Ok(entries)
     }
 }

@@ -47,12 +47,22 @@ async fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
     // Setup logging
-    env::set_var("RUST_LOG", "stackdog=info,actix_web=info");
+    // Only set default RUST_LOG if user hasn't configured it
+    if env::var("RUST_LOG").is_err() {
+        env::set_var("RUST_LOG", "stackdog=info,actix_web=info");
+    }
     env_logger::init();
     
-    // Setup tracing
+    // Setup tracing — respect RUST_LOG for level
+    let max_level = if env::var("RUST_LOG").map(|v| v.contains("debug")).unwrap_or(false) {
+        Level::DEBUG
+    } else if env::var("RUST_LOG").map(|v| v.contains("trace")).unwrap_or(false) {
+        Level::TRACE
+    } else {
+        Level::INFO
+    };
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
+        .with_max_level(max_level)
         .finish();
     tracing::subscriber::set_global_default(subscriber)
         .expect("setting default subscriber failed");

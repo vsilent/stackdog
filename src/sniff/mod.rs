@@ -43,6 +43,10 @@ impl SniffOrchestrator {
     fn create_analyzer(&self) -> Box<dyn LogAnalyzer> {
         match self.config.ai_provider {
             config::AiProvider::OpenAi => {
+                log::debug!(
+                    "Creating OpenAI-compatible analyzer (model: {}, url: {})",
+                    self.config.ai_model, self.config.ai_api_url
+                );
                 Box::new(analyzer::OpenAiAnalyzer::new(
                     self.config.ai_api_url.clone(),
                     self.config.ai_api_key.clone(),
@@ -87,8 +91,10 @@ impl SniffOrchestrator {
         let mut result = SniffPassResult::default();
 
         // 1. Discover sources
+        log::debug!("Step 1: discovering log sources...");
         let sources = discovery::discover_all(&self.config.extra_sources).await?;
         result.sources_found = sources.len();
+        log::debug!("Discovered {} sources", sources.len());
 
         // Register sources in DB
         for source in &sources {
@@ -96,33 +102,46 @@ impl SniffOrchestrator {
         }
 
         // 2. Build readers and analyzer
+        log::debug!("Step 2: building readers and analyzer...");
         let mut readers = self.build_readers(&sources);
         let analyzer = self.create_analyzer();
         let mut consumer = if self.config.consume {
+            log::debug!("Consume mode enabled, output: {}", self.config.output_dir.display());
             Some(LogConsumer::new(self.config.output_dir.clone())?)
         } else {
             None
         };
 
         // 3. Process each source
+        let reader_count = readers.len();
         for (i, reader) in readers.iter_mut().enumerate() {
+            log::debug!("Step 3: reading source {}/{} ({})", i + 1, reader_count, reader.source_id());
             let entries = reader.read_new_entries().await?;
             if entries.is_empty() {
+                log::debug!("  No new entries, skipping");
                 continue;
             }
 
             result.total_entries += entries.len();
+            log::debug!("  Read {} entries", entries.len());
 
             // 4. Analyze
+            log::debug!("Step 4: analyzing {} entries...", entries.len());
             let summary = analyzer.summarize(&entries).await?;
+            log::debug!(
+                "  Analysis complete: {} errors, {} warnings, {} anomalies",
+                summary.error_count, summary.warning_count, summary.anomalies.len()
+            );
 
             // 5. Report
+            log::debug!("Step 5: reporting results...");
             let report = self.reporter.report(&summary, Some(&self.pool))?;
             result.anomalies_found += report.anomalies_reported;
 
             // 6. Consume (if enabled)
             if let Some(ref mut cons) = consumer {
                 if i < sources.len() {
+                    log::debug!("Step 6: consuming entries...");
                     let source = &sources[i];
                     let consume_result = cons.consume(
                         &entries,
@@ -132,10 +151,13 @@ impl SniffOrchestrator {
                     ).await?;
                     result.bytes_freed += consume_result.bytes_freed;
                     result.entries_archived += consume_result.entries_archived;
+                    log::debug!("  Consumed: {} archived, {} bytes freed",
+                        consume_result.entries_archived, consume_result.bytes_freed);
                 }
             }
 
             // 7. Update read position
+            log::debug!("Step 7: saving read position ({})", reader.position());
             let _ = log_sources_repo::update_read_position(
                 &self.pool,
                 reader.source_id(),

@@ -36,6 +36,7 @@ impl Reporter {
 
         // Persist summary to database
         if let Some(pool) = pool {
+            log::debug!("Persisting summary for source {} to database", summary.source_id);
             let _ = log_sources::create_log_summary(
                 pool,
                 &summary.source_id,
@@ -52,6 +53,11 @@ impl Reporter {
         for anomaly in &summary.anomalies {
             let alert_severity = Self::map_severity(&anomaly.severity);
 
+            log::debug!(
+                "Generating alert: severity={}, description={}",
+                anomaly.severity, anomaly.description
+            );
+
             let alert = Alert::new(
                 AlertType::AnomalyDetected,
                 alert_severity,
@@ -63,6 +69,7 @@ impl Reporter {
 
             // Route to appropriate notification channels
             let channels = route_by_severity(alert_severity);
+            log::debug!("Routing alert to {} notification channels", channels.len());
             for channel in &channels {
                 match channel.send(&alert, &self.notification_config) {
                     Ok(_) => alerts_sent += 1,
