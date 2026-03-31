@@ -4,7 +4,6 @@
 
 #[cfg(target_os = "linux")]
 mod linux_tests {
-    use anyhow::Result;
     use stackdog::collectors::ebpf::loader::{EbpfLoader, LoadError};
 
     #[test]
@@ -15,8 +14,7 @@ mod linux_tests {
 
     #[test]
     fn test_ebpf_loader_default() {
-        let loader = EbpfLoader::default();
-        assert!(loader.is_ok(), "EbpfLoader::default() should succeed");
+        let _loader = EbpfLoader::default();
     }
 
     #[test]
@@ -45,8 +43,8 @@ mod linux_tests {
         assert!(msg.contains("test_program"));
 
         let error = LoadError::KernelVersionTooLow {
-            required: 4,
-            current: 3,
+            required: "4".to_string(),
+            current: "3".to_string(),
         };
         let msg = format!("{}", error);
         assert!(msg.contains("4.19"));

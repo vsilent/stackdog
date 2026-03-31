@@ -5,7 +5,7 @@
 #[cfg(target_os = "linux")]
 mod linux_tests {
     use stackdog::collectors::ebpf::syscall_monitor::SyscallMonitor;
-    use stackdog::events::syscall::{SyscallEvent, SyscallType};
+    use stackdog::events::syscall::SyscallType;
     use std::time::Duration;
 
     #[test]
@@ -55,7 +55,7 @@ mod linux_tests {
         std::thread::sleep(Duration::from_millis(100));
 
         let events = monitor.poll_events();
-        let has_connect = events
+        let _has_connect = events
             .iter()
             .any(|e| e.syscall_type == SyscallType::Connect);
 
@@ -90,7 +90,7 @@ mod linux_tests {
         // Note: Actually calling ptrace requires special setup
         // This test verifies the monitor doesn't crash
 
-        let events = monitor.poll_events();
+        let _events = monitor.poll_events();
         assert!(true); // Just verify no panic
     }
 

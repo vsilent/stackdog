@@ -84,7 +84,7 @@ fn example_events() {
     );
 
     // Convert to SecurityEvent
-    let security_event: SecurityEvent = execve_event.into();
+    let _security_event: SecurityEvent = execve_event.into();
     println!("  Converted to SecurityEvent variant");
 
     println!("  ✓ Events created successfully\n");

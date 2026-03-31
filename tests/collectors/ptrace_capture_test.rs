@@ -5,7 +5,6 @@
 #[cfg(target_os = "linux")]
 mod linux_tests {
     use stackdog::collectors::ebpf::syscall_monitor::SyscallMonitor;
-    use stackdog::events::syscall::SyscallType;
     use std::time::Duration;
 
     #[test]

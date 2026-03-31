@@ -117,7 +117,6 @@ impl EventValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::security::{AlertSeverity, AlertType};
     use crate::events::syscall::SyscallType;
     use chrono::Utc;
 
