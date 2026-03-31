@@ -143,7 +143,7 @@ fn test_timestamp_normalization() {
 
 #[test]
 fn test_enrichment_pipeline() {
-    let enricher = EventEnricher::new().expect("Failed to create enricher");
+    let mut enricher = EventEnricher::new().expect("Failed to create enricher");
     let mut event = SyscallEvent::new(1234, 1000, SyscallType::Execve, Utc::now());
 
     // Run full enrichment pipeline

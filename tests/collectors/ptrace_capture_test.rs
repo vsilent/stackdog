@@ -20,7 +20,7 @@ mod linux_tests {
 
         std::thread::sleep(Duration::from_millis(100));
 
-        let events = monitor.poll_events();
+        let _events = monitor.poll_events();
 
         // Just verify monitor works without crashing
         assert!(true, "Monitor should handle ptrace detection gracefully");
