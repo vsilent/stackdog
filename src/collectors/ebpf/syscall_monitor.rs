@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_syscall_monitor_not_running_initially() {
-        let monitor = SyscallMonitor::new();
+        let _monitor = SyscallMonitor::new();
 
         #[cfg(all(target_os = "linux", feature = "ebpf"))]
         {
@@ -241,11 +241,11 @@ mod tests {
 
     #[test]
     fn test_poll_events_empty_when_not_running() {
-        let mut monitor = SyscallMonitor::new();
+        let _monitor = SyscallMonitor::new();
 
         #[cfg(all(target_os = "linux", feature = "ebpf"))]
         {
-            let mut monitor = monitor.unwrap();
+            let mut monitor = _monitor.unwrap();
             let events = monitor.poll_events();
             assert!(events.is_empty());
         }
@@ -253,11 +253,11 @@ mod tests {
 
     #[test]
     fn test_event_count() {
-        let mut monitor = SyscallMonitor::new();
+        let _monitor = SyscallMonitor::new();
 
         #[cfg(all(target_os = "linux", feature = "ebpf"))]
         {
-            let mut monitor = monitor.unwrap();
+            let monitor = _monitor.unwrap();
             assert_eq!(monitor.event_count(), 0);
         }
     }

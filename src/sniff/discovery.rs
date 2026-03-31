@@ -233,7 +233,7 @@ mod tests {
         writeln!(tmp, "test log line").unwrap();
         let path = tmp.path().to_string_lossy().to_string();
 
-        let sources = discover_custom_sources(&[path.clone()]);
+        let sources = discover_custom_sources(std::slice::from_ref(&path));
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].source_type, LogSourceType::CustomFile);
         assert_eq!(sources[0].path_or_id, path);

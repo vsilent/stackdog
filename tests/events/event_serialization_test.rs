@@ -3,7 +3,6 @@
 //! Tests for JSON and binary serialization of events
 
 use chrono::Utc;
-use serde_json;
 use stackdog::events::security::SecurityEvent;
 use stackdog::events::syscall::{SyscallEvent, SyscallType};
 

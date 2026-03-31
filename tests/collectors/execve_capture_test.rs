@@ -107,10 +107,8 @@ mod linux_tests {
             .filter(|e| e.syscall_type == SyscallType::Execve)
             .collect();
 
-        // All events should have valid UID
-        for event in execve_events {
-            assert!(event.uid >= 0, "UID should be non-negative");
-        }
+        // UID is u32, so only verify iterating events is safe and stable.
+        for _event in execve_events {}
     }
 
     #[test]

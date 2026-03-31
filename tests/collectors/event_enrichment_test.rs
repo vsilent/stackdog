@@ -42,6 +42,8 @@ fn test_container_detector_creation() {
     // Should work on Linux, may fail on other platforms
     #[cfg(target_os = "linux")]
     assert!(detector.is_ok());
+    #[cfg(not(target_os = "linux"))]
+    assert!(detector.is_err());
 }
 
 #[test]
@@ -85,6 +87,11 @@ fn test_container_id_invalid_formats() {
             assert!(!result, "Should reject invalid container ID: {}", id);
         }
     }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        assert!(detector.is_err());
+    }
 }
 
 #[test]
@@ -104,10 +111,10 @@ fn test_cgroup_parsing() {
 
 #[test]
 fn test_process_tree_enrichment() {
-    let mut enricher = EventEnricher::new().expect("Failed to create enricher");
+    let enricher = EventEnricher::new().expect("Failed to create enricher");
 
     // Test that we can get parent PID
-    let ppid = enricher.get_parent_pid(1); // init process
+    let _ppid = enricher.get_parent_pid(1); // init process
 
     // PID 1 should exist on Linux
     #[cfg(target_os = "linux")]
@@ -119,7 +126,7 @@ fn test_process_comm_enrichment() {
     let enricher = EventEnricher::new().expect("Failed to create enricher");
 
     // Test that we can get process name
-    let comm = enricher.get_process_comm(std::process::id());
+    let _comm = enricher.get_process_comm(std::process::id());
 
     // Should get some process name
     #[cfg(target_os = "linux")]

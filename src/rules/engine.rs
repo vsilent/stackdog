@@ -102,30 +102,6 @@ impl Default for RuleEngine {
 mod tests {
     use super::*;
 
-    struct TestRule {
-        name: String,
-        priority: u32,
-        should_match: bool,
-    }
-
-    impl Rule for TestRule {
-        fn evaluate(&self, _event: &SecurityEvent) -> RuleResult {
-            if self.should_match {
-                RuleResult::Match
-            } else {
-                RuleResult::NoMatch
-            }
-        }
-
-        fn name(&self) -> &str {
-            &self.name
-        }
-
-        fn priority(&self) -> u32 {
-            self.priority
-        }
-    }
-
     #[test]
     fn test_engine_creation() {
         let engine = RuleEngine::new();

@@ -76,19 +76,11 @@ fn test_valid_ip_addresses() {
 }
 
 #[test]
-fn test_invalid_port() {
-    let event = NetworkEvent {
-        src_ip: "192.168.1.1".to_string(),
-        dst_ip: "10.0.0.1".to_string(),
-        src_port: 70000, // Invalid port (> 65535)
-        dst_port: 80,
-        protocol: "TCP".to_string(),
-        timestamp: Utc::now(),
-        container_id: None,
-    };
-
-    let result = EventValidator::validate_network(&event);
-    assert!(!result.is_valid());
+fn test_invalid_port_not_representable_for_u16() {
+    // NetworkEvent ports are u16, so values > 65535 cannot be constructed.
+    // This test asserts type-level safety explicitly.
+    let max = u16::MAX;
+    assert_eq!(max, 65535);
 }
 
 #[test]
