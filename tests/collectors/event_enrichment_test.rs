@@ -119,6 +119,8 @@ fn test_process_tree_enrichment() {
     // PID 1 should exist on Linux
     #[cfg(target_os = "linux")]
     assert!(ppid.is_some());
+    #[cfg(not(target_os = "linux"))]
+    let _ = ppid;
 }
 
 #[test]
@@ -131,6 +133,8 @@ fn test_process_comm_enrichment() {
     // Should get some process name
     #[cfg(target_os = "linux")]
     assert!(comm.is_some());
+    #[cfg(not(target_os = "linux"))]
+    let _ = comm;
 }
 
 #[test]
