@@ -73,7 +73,7 @@ impl EventEnricher {
             }
 
             // Alternative: read from /proc/[pid]/cmdline
-            let cmdline_path = format!("/proc/{}/cmdline", pid);
+            let cmdline_path = format!("/proc/{}/cmdline", _pid);
             if let Ok(content) = std::fs::read_to_string(&cmdline_path) {
                 if let Some(first_null) = content.find('\0') {
                     let path = &content[..first_null];
