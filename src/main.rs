@@ -72,8 +72,8 @@ async fn main() -> io::Result<()> {
     info!("Architecture: {}", std::env::consts::ARCH);
 
     match cli.command {
-        Some(Command::Sniff { once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url }) => {
-            run_sniff(once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url).await
+        Some(Command::Sniff { once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url, slack_webhook }) => {
+            run_sniff(once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url, slack_webhook).await
         }
         // Default: serve (backward compatible)
         Some(Command::Serve) | None => run_serve().await,
@@ -142,6 +142,7 @@ async fn run_sniff(
     ai_provider: Option<String>,
     ai_model: Option<String>,
     ai_api_url: Option<String>,
+    slack_webhook: Option<String>,
 ) -> io::Result<()> {
     let config = sniff::config::SniffConfig::from_env_and_args(
         once,
@@ -152,6 +153,7 @@ async fn run_sniff(
         ai_provider.as_deref(),
         ai_model.as_deref(),
         ai_api_url.as_deref(),
+        slack_webhook.as_deref(),
     );
 
     info!("🔍 Stackdog Sniff starting...");
@@ -162,6 +164,9 @@ async fn run_sniff(
     info!("AI Provider: {:?}", config.ai_provider);
     info!("AI Model: {}", config.ai_model);
     info!("AI API URL: {}", config.ai_api_url);
+    if config.slack_webhook.is_some() {
+        info!("Slack: configured ✓");
+    }
 
     let orchestrator = sniff::SniffOrchestrator::new(config)
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;

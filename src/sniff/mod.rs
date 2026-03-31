@@ -33,7 +33,13 @@ impl SniffOrchestrator {
         let pool = create_pool(&config.database_url)?;
         init_database(&pool)?;
 
-        let notification_config = NotificationConfig::default();
+        let mut notification_config = NotificationConfig::default();
+        if let Some(ref url) = config.slack_webhook {
+            notification_config = notification_config.with_slack_webhook(url.clone());
+        }
+        if let Some(ref url) = config.webhook_url {
+            notification_config = notification_config.with_webhook_url(url.clone());
+        }
         let reporter = Reporter::new(notification_config);
 
         Ok(Self { config, pool, reporter })
@@ -226,7 +232,7 @@ mod tests {
     #[test]
     fn test_orchestrator_creates_with_memory_db() {
         let mut config = SniffConfig::from_env_and_args(
-            true, false, "./stackdog-logs/", None, 30, None, None, None,
+            true, false, "./stackdog-logs/", None, 30, None, None, None, None,
         );
         config.database_url = ":memory:".into();
 
@@ -249,7 +255,7 @@ mod tests {
         let mut config = SniffConfig::from_env_and_args(
             true, false, "./stackdog-logs/",
             Some(&log_path.to_string_lossy()),
-            30, Some("candle"), None, None,
+            30, Some("candle"), None, None, None,
         );
         config.database_url = ":memory:".into();
 

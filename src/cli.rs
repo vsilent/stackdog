@@ -52,6 +52,10 @@ pub enum Command {
         /// AI API URL (e.g. "http://localhost:11434/v1" for Ollama)
         #[arg(long)]
         ai_api_url: Option<String>,
+
+        /// Slack webhook URL for alert notifications
+        #[arg(long)]
+        slack_webhook: Option<String>,
     },
 }
 
@@ -76,7 +80,7 @@ mod tests {
     fn test_sniff_subcommand_defaults() {
         let cli = Cli::parse_from(["stackdog", "sniff"]);
         match cli.command {
-            Some(Command::Sniff { once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url }) => {
+            Some(Command::Sniff { once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url, slack_webhook }) => {
                 assert!(!once);
                 assert!(!consume);
                 assert_eq!(output, "./stackdog-logs/");
@@ -85,6 +89,7 @@ mod tests {
                 assert!(ai_provider.is_none());
                 assert!(ai_model.is_none());
                 assert!(ai_api_url.is_none());
+                assert!(slack_webhook.is_none());
             }
             _ => panic!("Expected Sniff command"),
         }
@@ -120,9 +125,10 @@ mod tests {
             "--ai-provider", "openai",
             "--ai-model", "gpt-4o-mini",
             "--ai-api-url", "https://api.openai.com/v1",
+            "--slack-webhook", "https://hooks.slack.com/services/T/B/xxx",
         ]);
         match cli.command {
-            Some(Command::Sniff { once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url }) => {
+            Some(Command::Sniff { once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url, slack_webhook }) => {
                 assert!(once);
                 assert!(consume);
                 assert_eq!(output, "/tmp/logs/");
@@ -131,6 +137,7 @@ mod tests {
                 assert_eq!(ai_provider.unwrap(), "openai");
                 assert_eq!(ai_model.unwrap(), "gpt-4o-mini");
                 assert_eq!(ai_api_url.unwrap(), "https://api.openai.com/v1");
+                assert_eq!(slack_webhook.unwrap(), "https://hooks.slack.com/services/T/B/xxx");
             }
             _ => panic!("Expected Sniff command"),
         }
