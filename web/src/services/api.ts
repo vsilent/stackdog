@@ -39,7 +39,7 @@ class ApiService {
   }
 
   async getThreatStatistics(): Promise<ThreatStatistics> {
-    const response = await this.api.get('/statistics');
+    const response = await this.api.get('/threats/statistics');
     return response.data;
   }
 
