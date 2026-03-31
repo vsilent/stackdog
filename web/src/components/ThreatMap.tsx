@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Form, Spinner } from 'react-bootstrap';
 import { BarChart, Bar, PieChart, Pie, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
-import apiService from '../../services/api';
-import { Threat, ThreatStatistics } from '../../types/security';
+import apiService from '../services/api';
+import { Threat, ThreatStatistics } from '../types/security';
 import './ThreatMap.css';
 
 const COLORS = ['#e74c3c', '#e67e22', '#f39c12', '#3498db', '#27ae60'];

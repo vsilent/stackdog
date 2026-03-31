@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Container, Row, Col, Card, Spinner, Alert as BootstrapAlert } from 'react-bootstrap';
-import apiService from '../../services/api';
-import webSocketService from '../../services/websocket';
-import { SecurityStatus } from '../../types/security';
+import apiService from '../services/api';
+import webSocketService from '../services/websocket';
+import { SecurityStatus } from '../types/security';
 import SecurityScore from './SecurityScore';
 import AlertPanel from './AlertPanel';
 import ContainerList from './ContainerList';
@@ -42,7 +42,7 @@ const Dashboard: React.FC = () => {
       await webSocketService.connect();
 
       // Subscribe to real-time updates
-      webSocketService.subscribe('stats:updated', (data) => {
+      webSocketService.subscribe('stats:updated', (data: Partial<SecurityStatus>) => {
         setSecurityStatus(prev => prev ? { ...prev, ...data } : null);
       });
 
