@@ -305,10 +305,10 @@ mod tests {
     fn test_ebpf_loader_creation() {
         let loader = EbpfLoader::new();
 
-        #[cfg(all(target_os = "linux", feature = "ebpf"))]
+        #[cfg(target_os = "linux")]
         assert!(loader.is_ok());
 
-        #[cfg(not(all(target_os = "linux", feature = "ebpf")))]
+        #[cfg(not(target_os = "linux"))]
         assert!(loader.is_err());
     }
 
