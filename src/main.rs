@@ -31,7 +31,12 @@ use tracing_subscriber::FmtSubscriber;
 #[actix_rt::main]
 async fn main() -> io::Result<()> {
     // Load environment
-    dotenv::dotenv().expect("Could not read .env file");
+    if let Err(err) = dotenv::dotenv() {
+        eprintln!(
+            "Warning: could not load .env file ({}). Continuing with existing environment.",
+            err
+        );
+    }
 
     // Parse CLI arguments
     let cli = Cli::parse();
