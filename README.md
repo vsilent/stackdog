@@ -18,11 +18,13 @@
 ### 🔥 Key Features
 
 - **📊 Real-time Monitoring** — eBPF-based syscall monitoring with minimal overhead (<5% CPU)
-- **🤖 AI/ML Detection** — Candle-powered anomaly detection (native Rust, no Python)
+- **🔍 Log Sniffing** — Discover, read, and AI-summarize logs from containers and system files
+- **🤖 AI/ML Detection** — Candle-powered anomaly detection + OpenAI/Ollama log analysis
 - **🚨 Alert System** — Multi-channel notifications (Slack, email, webhook)
 - **🔒 Automated Response** — nftables/iptables firewall, container quarantine
 - **📈 Threat Scoring** — Configurable scoring with time-decay
 - **🎯 Signature Detection** — 10+ built-in threat signatures
+- **📦 Log Archival** — Deduplicate and compress logs with zstd, optionally purge originals
 
 ---
 
@@ -39,6 +41,446 @@
 - [License](#-license)
 
 ---
+
+## 🚀 Quick Start
+
+### Install with curl (Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vsilent/stackdog/dev/install.sh | sudo bash
+```
+
+Pin a specific version:
+```bash
+curl -fsSL https://raw.githubusercontent.com/vsilent/stackdog/dev/install.sh | sudo bash -s -- --version v0.2.0
+```
+
+### Run as Binary
+
+```bash
+# Clone repository
+git clone https://github.com/vsilent/stackdog
+cd stackdog
+
+# Start the HTTP server (default)
+cargo run
+
+# Or explicitly
+cargo run -- serve
+```
+
+### Log Sniffing
+
+```bash
+# Discover and analyze logs (one-shot)
+cargo run -- sniff --once
+
+# Continuous monitoring with AI analysis
+cargo run -- sniff --ai-provider openai
+
+# Use Ollama (local LLM)
+STACKDOG_AI_API_URL=http://localhost:11434/v1 cargo run -- sniff
+
+# Consume mode: archive to zstd + purge originals
+cargo run -- sniff --consume --output ./log-archive
+
+# Add custom log sources
+cargo run -- sniff --sources "/var/log/myapp.log,/opt/service/logs"
+```
+
+### Use as Library
+
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+stackdog = "0.2"
+```
+
+Basic usage:
+
+```rust
+use stackdog::{RuleEngine, AlertManager, ThreatScorer};
+
+let mut engine = RuleEngine::new();
+let mut alerts = AlertManager::new()?;
+let scorer = ThreatScorer::new();
+
+// Process security events
+for event in events {
+    let score = scorer.calculate_score(&event);
+    if score.is_high_or_higher() {
+        alerts.generate_alert(...)?;
+    }
+}
+```
+
+### Docker Development
+
+```bash
+# Start development environment
+docker-compose up -d
+
+# View logs
+docker-compose logs -f stackdog
+```
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Stackdog Security Core                       │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │  Collectors │  │   ML/AI     │  │   Response Engine       │  │
+│  │             │  │   Engine    │  │                         │  │
+│  │ • eBPF      │  │             │  │ • nftables/iptables     │  │
+│  │ • Auditd    │  │ • Anomaly   │  │ • Container quarantine  │  │
+│  │ • Docker    │  │   Detection │  │ • Auto-response         │  │
+│  │   Events    │  │ • Scoring   │  │ • Alerting              │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────────┐│
+│  │  Log Sniffing                                               ││
+│  │  • Auto-discovery (system logs, Docker, custom paths)       ││
+│  │  • AI summarization (OpenAI/Ollama/Candle)                  ││
+│  │  • zstd compression, dedup, log purge                       ││
+│  └──────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Components
+
+| Component | Description | Status |
+|-----------|-------------|--------|
+| **Events** | Security event types & validation | ✅ Complete |
+| **Rules** | Rule engine & signature detection | ✅ Complete |
+| **Alerting** | Alert management & notifications | ✅ Complete |
+| **Firewall** | nftables/iptables integration | ✅ Complete |
+| **Collectors** | eBPF syscall monitoring | ✅ Infrastructure |
+| **Log Sniffing** | Log discovery, AI analysis, archival | ✅ Complete |
+| **ML** | Candle-based anomaly detection | ⏳ Planned |
+
+---
+
+## 🎯 Features
+
+### 1. Event Collection
+
+```rust
+use stackdog::{SyscallEvent, SyscallType};
+
+let event = SyscallEvent::builder()
+    .pid(1234)
+    .uid(1000)
+    .syscall_type(SyscallType::Execve)
+    .container_id(Some("abc123".to_string()))
+    .build();
+```
+
+**Supported Events:**
+- Syscall events (execve, connect, openat, ptrace, etc.)
+- Network events
+- Container lifecycle events
+- Alert events
+
+### 2. Rule Engine
+
+```rust
+use stackdog::RuleEngine;
+use stackdog::rules::builtin::{SyscallBlocklistRule, ProcessExecutionRule};
+
+let mut engine = RuleEngine::new();
+engine.register_rule(Box::new(SyscallBlocklistRule::new(
+    vec![SyscallType::Ptrace, SyscallType::Setuid]
+)));
+
+let results = engine.evaluate(&event);
+```
+
+**Built-in Rules:**
+- Syscall allowlist/blocklist
+- Process execution monitoring
+- Network connection tracking
+- File access monitoring
+
+### 3. Signature Detection
+
+```rust
+use stackdog::SignatureDatabase;
+
+let db = SignatureDatabase::new();
+println!("Loaded {} signatures", db.signature_count());
+
+let matches = db.detect(&event);
+for sig in matches {
+    println!("Threat: {} (Severity: {})", sig.name(), sig.severity());
+}
+```
+
+**Built-in Signatures (10+):**
+- 🪙 Crypto miner detection
+- 🏃 Container escape attempts
+- 🌐 Network scanners
+- 🔐 Privilege escalation
+- 📤 Data exfiltration
+
+### 4. Threat Scoring
+
+```rust
+use stackdog::ThreatScorer;
+
+let scorer = ThreatScorer::new();
+let score = scorer.calculate_score(&event);
+
+if score.is_critical() {
+    println!("Critical threat detected! Score: {}", score.value());
+}
+```
+
+**Severity Levels:**
+- Info (0-19)
+- Low (20-39)
+- Medium (40-69)
+- High (70-89)
+- Critical (90-100)
+
+### 5. Alert System
+
+```rust
+use stackdog::AlertManager;
+
+let mut manager = AlertManager::new()?;
+
+let alert = manager.generate_alert(
+    AlertType::ThreatDetected,
+    AlertSeverity::High,
+    "Suspicious activity detected".to_string(),
+    Some(event),
+)?;
+
+manager.acknowledge_alert(&alert.id())?;
+```
+
+**Notification Channels:**
+- Console (logging)
+- Slack webhooks
+- Email (SMTP)
+- Generic webhooks
+
+### 6. Firewall & Response
+
+```rust
+use stackdog::{QuarantineManager, ResponseAction, ResponseType};
+
+// Quarantine container
+let mut quarantine = QuarantineManager::new()?;
+quarantine.quarantine("container_abc123")?;
+
+// Automated response
+let action = ResponseAction::new(
+    ResponseType::BlockIP("192.168.1.100".to_string()),
+    "Block malicious IP".to_string(),
+);
+```
+
+**Response Actions:**
+- Block IP addresses
+- Block ports
+- Quarantine containers
+- Kill processes
+- Send alerts
+- Custom commands
+
+### 7. Log Sniffing & AI Analysis
+
+```bash
+# Discover all log sources and analyze with AI
+stackdog sniff --once --ai-provider openai
+
+# Continuous daemon with local Ollama
+stackdog sniff --interval 60 --ai-provider openai
+
+# Consume: archive (zstd) + purge originals to free disk
+stackdog sniff --consume --output ./archive
+
+# Add custom sources alongside auto-discovered ones
+stackdog sniff --sources "/app/logs/api.log,/app/logs/worker.log"
+```
+
+**Capabilities:**
+- 🔍 Auto-discovers system logs, Docker container logs, and custom paths
+- 🤖 AI summarization via OpenAI, Ollama, or local pattern analysis
+- 📦 Deduplicates and compresses logs with zstd
+- 🗑️ Optional `--consume` mode: archives then purges originals
+- 📊 Incremental reading — tracks byte offsets, never re-reads old entries
+- 🚨 Anomaly alerts routed to configured notification channels
+
+**REST API:**
+```bash
+# List discovered sources
+curl http://localhost:5000/api/logs/sources
+
+# Add a custom source
+curl -X POST http://localhost:5000/api/logs/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"path": "/var/log/myapp.log", "name": "My App"}'
+
+# View AI summaries
+curl http://localhost:5000/api/logs/summaries?source_id=myapp
+```
+
+---
+
+## 📦 Installation
+
+### Prerequisites
+
+- **Rust** 1.75+ ([install](https://rustup.rs/))
+- **SQLite3** + libsqlite3-dev
+- **Linux** kernel 4.19+ (for eBPF features)
+- **Clang/LLVM** (for eBPF compilation)
+
+### Install Dependencies
+
+**Ubuntu/Debian:**
+```bash
+apt-get install libsqlite3-dev libssl-dev clang llvm pkg-config
+```
+
+**macOS:**
+```bash
+brew install sqlite openssl llvm
+```
+
+**Fedora/RHEL:**
+```bash
+dnf install sqlite-devel openssl-devel clang llvm
+```
+
+### Build from Source
+
+```bash
+git clone https://github.com/vsilent/stackdog
+cd stackdog
+cargo build --release
+```
+
+### Run Tests
+
+```bash
+# Run all tests
+cargo test --lib
+
+# Run specific module tests
+cargo test --lib -- events::
+cargo test --lib -- rules::
+cargo test --lib -- alerting::
+cargo test --lib -- sniff::
+```
+
+---
+
+## 💡 Usage Examples
+
+### Example 1: Detect Suspicious Syscalls
+
+```rust
+use stackdog::{RuleEngine, SyscallEvent, SyscallType};
+use stackdog::rules::builtin::SyscallBlocklistRule;
+
+let mut engine = RuleEngine::new();
+engine.register_rule(Box::new(SyscallBlocklistRule::new(
+    vec![SyscallType::Ptrace, SyscallType::Setuid]
+)));
+
+let event = SyscallEvent::new(
+    1234, 1000, SyscallType::Ptrace, Utc::now()
+);
+
+let results = engine.evaluate(&event);
+if results.iter().any(|r| r.is_match()) {
+    println!("⚠️ Suspicious syscall detected!");
+}
+```
+
+### Example 2: Container Quarantine
+
+```rust
+use stackdog::QuarantineManager;
+
+let mut quarantine = QuarantineManager::new()?;
+
+// Quarantine compromised container
+quarantine.quarantine("container_abc123")?;
+
+// Check quarantine status
+let state = quarantine.get_state("container_abc123");
+println!("Container state: {:?}", state);
+
+// Release after investigation
+quarantine.release("container_abc123")?;
+```
+
+### Example 3: Multi-Event Pattern Detection
+
+```rust
+use stackdog::{SignatureMatcher, PatternMatch, SyscallType};
+
+let mut matcher = SignatureMatcher::new();
+
+// Detect: execve followed by ptrace (suspicious)
+matcher.add_pattern(
+    PatternMatch::new()
+        .with_syscall(SyscallType::Execve)
+        .then_syscall(SyscallType::Ptrace)
+        .within_seconds(60)
+);
+
+let result = matcher.match_sequence(&events);
+if result.is_match() {
+    println!("⚠️ Suspicious pattern detected!");
+}
+```
+
+### More Examples
+
+See [`examples/usage_examples.rs`](examples/usage_examples.rs) for complete working examples.
+
+Run examples:
+```bash
+cargo run --example usage_examples
+```
+
+---
+
+## 📚 Documentation
+
+| Document | Description |
+|----------|-------------|
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Complete development plan (18 weeks) |
+| [TESTING.md](TESTING.md) | Testing guide and infrastructure |
+| [TODO.md](TODO.md) | Task tracking and roadmap |
+| [CHANGELOG.md](CHANGELOG.md) | Version history |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
+| [STATUS.md](STATUS.md) | Current implementation status |
+
+### API Documentation
+
+```bash
+# Generate docs
+cargo doc --open
+
+# View online (after release)
+# https://docs.rs/stackdog
+```
+
+---
+
+## 🛠️ Development
+
+### Project Structure
 
 ## 🚀 Quick Start
 
@@ -394,21 +836,23 @@ cargo doc --open
 # View online (after release)
 # https://docs.rs/stackdog
 ```
-
----
-
-## 🛠️ Development
-
-### Project Structure
-
-```
 stackdog/
 ├── src/
+│   ├── cli.rs           # Clap CLI (serve/sniff subcommands)
 │   ├── events/          # Event types & validation
 │   ├── rules/           # Rule engine & signatures
 │   ├── alerting/        # Alerts & notifications
 │   ├── firewall/        # nftables/iptables
 │   ├── collectors/      # eBPF collectors
+│   ├── sniff/           # Log sniffing & AI analysis
+│   │   ├── config.rs    # SniffConfig (env + CLI)
+│   │   ├── discovery.rs # Log source auto-discovery
+│   │   ├── reader.rs    # File/Docker/Journald readers
+│   │   ├── analyzer.rs  # AI summarization (OpenAI + pattern)
+│   │   ├── consumer.rs  # zstd compression, dedup, purge
+│   │   └── reporter.rs  # Alert routing
+│   ├── api/             # REST API endpoints
+│   ├── database/        # SQLite + repositories
 │   ├── ml/              # ML infrastructure
 │   └── config/          # Configuration
 ├── examples/            # Usage examples
@@ -507,11 +951,12 @@ Look for issues labeled:
 - ✅ Signature detection (TASK-006)
 - ✅ Alert system (TASK-007)
 - ✅ Firewall integration (TASK-008)
+- ✅ Log sniffing & AI analysis (TASK-009)
 
 ### Upcoming Tasks
 
-- ⏳ Web dashboard (TASK-009)
 - ⏳ ML anomaly detection (TASK-010)
+- ⏳ Web dashboard (TASK-011)
 - ⏳ Kubernetes support (BACKLOG)
 
 ---

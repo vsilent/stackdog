@@ -22,26 +22,47 @@ mod config;
 mod api;
 mod database;
 mod docker;
+mod events;
+mod rules;
+mod alerting;
+mod models;
+mod cli;
+mod sniff;
 
 use std::{io, env};
 use actix_web::{HttpServer, App, web};
 use actix_cors::Cors;
+use clap::Parser;
 use tracing::{Level, info};
 use tracing_subscriber::FmtSubscriber;
 use database::{create_pool, init_database};
+use cli::{Cli, Command};
 
 #[actix_rt::main]
 async fn main() -> io::Result<()> {
     // Load environment
     dotenv::dotenv().expect("Could not read .env file");
 
+    // Parse CLI arguments
+    let cli = Cli::parse();
+
     // Setup logging
-    env::set_var("RUST_LOG", "stackdog=info,actix_web=info");
+    // Only set default RUST_LOG if user hasn't configured it
+    if env::var("RUST_LOG").is_err() {
+        env::set_var("RUST_LOG", "stackdog=info,actix_web=info");
+    }
     env_logger::init();
     
-    // Setup tracing
+    // Setup tracing — respect RUST_LOG for level
+    let max_level = if env::var("RUST_LOG").map(|v| v.contains("debug")).unwrap_or(false) {
+        Level::DEBUG
+    } else if env::var("RUST_LOG").map(|v| v.contains("trace")).unwrap_or(false) {
+        Level::TRACE
+    } else {
+        Level::INFO
+    };
     let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
+        .with_max_level(max_level)
         .finish();
     tracing::subscriber::set_global_default(subscriber)
         .expect("setting default subscriber failed");
@@ -49,8 +70,17 @@ async fn main() -> io::Result<()> {
     info!("🐕 Stackdog Security starting...");
     info!("Platform: {}", std::env::consts::OS);
     info!("Architecture: {}", std::env::consts::ARCH);
-    
-    // Display configuration
+
+    match cli.command {
+        Some(Command::Sniff { once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url, slack_webhook }) => {
+            run_sniff(once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url, slack_webhook).await
+        }
+        // Default: serve (backward compatible)
+        Some(Command::Serve) | None => run_serve().await,
+    }
+}
+
+async fn run_serve() -> io::Result<()> {
     let app_host = env::var("APP_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let app_port = env::var("APP_PORT").unwrap_or_else(|_| "5000".to_string());
     let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "./stackdog.db".to_string());
@@ -78,6 +108,9 @@ async fn main() -> io::Result<()> {
     info!("  POST /api/containers/:id/quar - Quarantine container");
     info!("  GET  /api/threats             - List threats");
     info!("  GET  /api/threats/statistics  - Threat statistics");
+    info!("  GET  /api/logs/sources        - List log sources");
+    info!("  POST /api/logs/sources        - Add log source");
+    info!("  GET  /api/logs/summaries      - List AI summaries");
     info!("  WS   /ws                      - WebSocket for real-time updates");
     info!("");
     info!("Web Dashboard: http://{}:{}", app_host, app_port);
@@ -99,3 +132,46 @@ async fn main() -> io::Result<()> {
     .run()
     .await
 }
+
+async fn run_sniff(
+    once: bool,
+    consume: bool,
+    output: String,
+    sources: Option<String>,
+    interval: u64,
+    ai_provider: Option<String>,
+    ai_model: Option<String>,
+    ai_api_url: Option<String>,
+    slack_webhook: Option<String>,
+) -> io::Result<()> {
+    let config = sniff::config::SniffConfig::from_env_and_args(
+        once,
+        consume,
+        &output,
+        sources.as_deref(),
+        interval,
+        ai_provider.as_deref(),
+        ai_model.as_deref(),
+        ai_api_url.as_deref(),
+        slack_webhook.as_deref(),
+    );
+
+    info!("🔍 Stackdog Sniff starting...");
+    info!("Mode: {}", if config.once { "one-shot" } else { "continuous" });
+    info!("Consume: {}", config.consume);
+    info!("Output: {}", config.output_dir.display());
+    info!("Interval: {}s", config.interval_secs);
+    info!("AI Provider: {:?}", config.ai_provider);
+    info!("AI Model: {}", config.ai_model);
+    info!("AI API URL: {}", config.ai_api_url);
+    if config.slack_webhook.is_some() {
+        info!("Slack: configured ✓");
+    }
+
+    let orchestrator = sniff::SniffOrchestrator::new(config)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+    orchestrator.run().await
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+}
+

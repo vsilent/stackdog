@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Log Sniffing & Analysis (`stackdog sniff`)
+- **CLI Subcommands** — Multi-mode binary with `stackdog serve` and `stackdog sniff`
+  - `--once` flag for single-pass mode
+  - `--consume` flag to archive logs (zstd) and purge originals
+  - `--sources` to add custom log paths
+  - `--ai-provider` to select AI backend (openai/candle)
+  - `--interval` for polling frequency
+  - `--output` for archive destination
+
+- **Log Source Discovery** — Automatic and manual log source management
+  - System logs (`/var/log/syslog`, `messages`, `auth.log`, etc.)
+  - Docker container logs via bollard API
+  - Custom file paths (CLI, env var, or REST API)
+  - Incremental read position tracking (byte offset persisted in DB)
+
+- **Log Readers** — Trait-based reader abstraction
+  - `FileLogReader` with byte-offset tracking and log rotation detection
+  - `DockerLogReader` using bollard streaming API
+  - `JournaldReader` (Linux-gated) for systemd journal
+
+- **AI-Powered Analysis** — Dual-backend log summarization
+  - `OpenAiAnalyzer` — works with any OpenAI-compatible API (OpenAI, Ollama, vLLM)
+  - `PatternAnalyzer` — local fallback with error/warning counting and spike detection
+  - Structured `LogSummary` with anomaly detection (`LogAnomaly`, severity levels)
+
+- **Log Consumer** — Archive and purge pipeline
+  - FNV hash-based deduplication
+  - zstd compression (level 3) for archived logs
+  - File truncation and Docker log purge
+  - `ConsumeResult` tracking (entries archived, duplicates skipped, bytes freed)
+
+- **Reporter** — Bridges log analysis to existing alert system
+  - Converts `LogAnomaly` → `Alert` using `AlertManager` infrastructure
+  - Routes notifications via `route_by_severity()` to configured channels
+  - Persists `LogSummary` records to database
+
+- **REST API Endpoints**
+  - `GET /api/logs/sources` — list discovered log sources
+  - `POST /api/logs/sources` — manually add a custom source
+  - `GET /api/logs/sources/{path}` — get source details
+  - `DELETE /api/logs/sources/{path}` — remove a source
+  - `GET /api/logs/summaries` — list AI-generated summaries (filterable by source)
+
+- **Database Tables** — `log_sources` and `log_summaries` with indexes
+
+#### Dependencies
+- `clap = "4"` (derive) — CLI argument parsing
+- `async-trait = "0.1"` — async trait support
+- `reqwest = "0.12"` (json) — HTTP client for AI APIs
+- `zstd = "0.13"` — log compression
+- `futures-util = "0.3"` — Docker log streaming
+
+### Changed
+
+- Refactored `main.rs` to dispatch `serve`/`sniff` subcommands via clap
+- Added `events`, `rules`, `alerting`, `models` modules to binary crate
+- Updated `.env.sample` with `STACKDOG_LOG_SOURCES`, `STACKDOG_AI_*` config vars
+
+### Testing
+
+- **80+ new tests** covering all sniff modules (TDD)
+  - Config: 12, Discovery: 14, Readers: 10, Analyzer: 16, Consumer: 13, Reporter: 5, Orchestrator: 3, API: 7
+
 ### Planned
 
 - Web dashboard (React/TypeScript)

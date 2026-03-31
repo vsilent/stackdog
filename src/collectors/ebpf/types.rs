@@ -27,7 +27,7 @@ pub struct EbpfSyscallEvent {
 
 /// Event data union
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub union EbpfEventData {
     /// execve data
     pub execve: ExecveData,
@@ -41,6 +41,14 @@ pub union EbpfEventData {
     pub raw: [u8; 128],
 }
 
+impl std::fmt::Debug for EbpfEventData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // SAFETY: raw is always a valid field in any union variant
+        let raw = unsafe { self.raw };
+        write!(f, "EbpfEventData {{ raw: {:?} }}", &raw[..])
+    }
+}
+
 impl Default for EbpfEventData {
     fn default() -> Self {
         Self {
@@ -51,7 +59,7 @@ impl Default for EbpfEventData {
 
 /// execve-specific data
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct ExecveData {
     /// Filename length
     pub filename_len: u32,
@@ -59,6 +67,12 @@ pub struct ExecveData {
     pub filename: [u8; 128],
     /// Argument count
     pub argc: u32,
+}
+
+impl Default for ExecveData {
+    fn default() -> Self {
+        Self { filename_len: 0, filename: [0u8; 128], argc: 0 }
+    }
 }
 
 /// connect-specific data
@@ -75,7 +89,7 @@ pub struct ConnectData {
 
 /// openat-specific data
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct OpenatData {
     /// File path length
     pub path_len: u32,
@@ -83,6 +97,12 @@ pub struct OpenatData {
     pub path: [u8; 256],
     /// Open flags
     pub flags: u32,
+}
+
+impl Default for OpenatData {
+    fn default() -> Self {
+        Self { path_len: 0, path: [0u8; 256], flags: 0 }
+    }
 }
 
 /// ptrace-specific data

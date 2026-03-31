@@ -133,7 +133,7 @@ pub fn normalize_timestamp(ts: chrono::DateTime<chrono::Utc>) -> chrono::DateTim
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+    use chrono::Utc;
     #[test]
     fn test_enricher_creation() {
         let enricher = EventEnricher::new();

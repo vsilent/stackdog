@@ -46,8 +46,7 @@ pub mod models;
 #[cfg(target_os = "linux")]
 pub mod firewall;
 
-// Security modules - Collectors
-#[cfg(target_os = "linux")]
+// Security modules - Collectors (cross-platform; Linux-specific internals are gated within)
 pub mod collectors;
 
 // Optional modules
@@ -56,9 +55,13 @@ pub mod response;
 pub mod correlator;
 pub mod baselines;
 pub mod database;
+pub mod docker;
 
 // Configuration
 pub mod config;
+
+// Log sniffing
+pub mod sniff;
 
 // Re-export commonly used types
 pub use events::syscall::{SyscallEvent, SyscallType};
@@ -74,7 +77,6 @@ pub use alerting::{NotificationChannel, NotificationConfig};
 pub use firewall::{QuarantineManager, QuarantineState};
 #[cfg(target_os = "linux")]
 pub use firewall::{ResponseAction, ResponseChain, ResponseExecutor, ResponseType};
-#[cfg(target_os = "linux")]
 pub use collectors::{EbpfLoader, SyscallMonitor};
 
 // Rules

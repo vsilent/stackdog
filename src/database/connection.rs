@@ -108,6 +108,38 @@ pub fn init_database(pool: &DbPool) -> Result<()> {
     
     let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_containers_status ON containers_cache(status)", []);
     let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_containers_name ON containers_cache(name)", []);
+
+    // Create log_sources table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS log_sources (
+            id TEXT PRIMARY KEY,
+            source_type TEXT NOT NULL,
+            path_or_id TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            discovered_at TEXT NOT NULL,
+            last_read_position INTEGER DEFAULT 0
+        )",
+        [],
+    )?;
+
+    // Create log_summaries table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS log_summaries (
+            id TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL,
+            summary_text TEXT NOT NULL,
+            period_start TEXT NOT NULL,
+            period_end TEXT NOT NULL,
+            total_entries INTEGER DEFAULT 0,
+            error_count INTEGER DEFAULT 0,
+            warning_count INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL
+        )",
+        [],
+    )?;
+
+    let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_log_sources_type ON log_sources(source_type)", []);
+    let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_log_summaries_source ON log_summaries(source_id)", []);
     
     Ok(())
 }

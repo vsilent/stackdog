@@ -12,7 +12,10 @@ use crate::collectors::ebpf::container::ContainerDetector;
 pub struct SyscallMonitor {
     #[cfg(all(target_os = "linux", feature = "ebpf"))]
     loader: Option<super::loader::EbpfLoader>,
-    
+
+    #[cfg(all(target_os = "linux", feature = "ebpf"))]
+    ring_buf: Option<aya::maps::RingBuf<aya::maps::MapData>>,
+
     running: bool,
     event_buffer: EventRingBuffer,
     enricher: EventEnricher,
@@ -34,6 +37,7 @@ impl SyscallMonitor {
             
             Ok(Self {
                 loader: Some(loader),
+                ring_buf: None,
                 running: false,
                 event_buffer: EventRingBuffer::with_capacity(8192),
                 enricher,
@@ -54,15 +58,36 @@ impl SyscallMonitor {
             if self.running {
                 anyhow::bail!("Monitor is already running");
             }
-            
-            // TODO: Actually start eBPF programs in TASK-004
-            // For now, just mark as running
+
+            if let Some(loader) = &mut self.loader {
+                let ebpf_path = "target/bpfel-unknown-none/release/stackdog";
+                match loader.load_program_from_file(ebpf_path) {
+                    Ok(()) => {
+                        loader.attach_all_programs().unwrap_or_else(|e| {
+                            log::warn!("Some eBPF programs failed to attach: {}", e);
+                        });
+                        match loader.take_ring_buf() {
+                            Ok(rb) => { self.ring_buf = Some(rb); }
+                            Err(e) => { log::warn!("Failed to get eBPF ring buffer: {}", e); }
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "eBPF program not found at '{}': {}. \
+                             Running without kernel event collection — \
+                             build the eBPF crate first with `cargo build --release` \
+                             in the ebpf/ directory.",
+                            ebpf_path, e
+                        );
+                    }
+                }
+            }
+
             self.running = true;
-            
             log::info!("Syscall monitor started");
             Ok(())
         }
-        
+
         #[cfg(not(all(target_os = "linux", feature = "ebpf")))]
         {
             anyhow::bail!("SyscallMonitor is only available on Linux");
@@ -73,7 +98,10 @@ impl SyscallMonitor {
     pub fn stop(&mut self) -> Result<()> {
         self.running = false;
         self.event_buffer.clear();
-        
+        #[cfg(all(target_os = "linux", feature = "ebpf"))]
+        {
+            self.ring_buf = None;
+        }
         log::info!("Syscall monitor stopped");
         Ok(())
     }
@@ -90,25 +118,39 @@ impl SyscallMonitor {
             if !self.running {
                 return Vec::new();
             }
-            
-            // TODO: Actually poll eBPF ring buffer in TASK-004
-            // For now, drain from internal buffer
+
+            // Drain the eBPF ring buffer into the staging buffer
+            if let Some(rb) = &mut self.ring_buf {
+                while let Some(item) = rb.next() {
+                    let bytes: &[u8] = &item;
+                    if bytes.len() >= std::mem::size_of::<super::types::EbpfSyscallEvent>() {
+                        // SAFETY: We verified the byte length matches the struct size,
+                        // and EbpfSyscallEvent is #[repr(C)] with no padding surprises.
+                        let raw: super::types::EbpfSyscallEvent = unsafe {
+                            std::ptr::read_unaligned(
+                                bytes.as_ptr() as *const super::types::EbpfSyscallEvent
+                            )
+                        };
+                        self.event_buffer.push(raw.to_syscall_event());
+                    }
+                }
+            }
+
+            // Drain the staging buffer and enrich with /proc info
             let mut events = self.event_buffer.drain();
-            
-            // Enrich events
             for event in &mut events {
                 let _ = self.enricher.enrich(event);
             }
-            
+
             events
         }
-        
+
         #[cfg(not(all(target_os = "linux", feature = "ebpf")))]
         {
             Vec::new()
         }
     }
-    
+
     /// Get events without consuming them
     pub fn peek_events(&self) -> &[SyscallEvent] {
         self.event_buffer.events()

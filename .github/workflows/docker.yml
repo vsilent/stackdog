@@ -12,7 +12,8 @@ on:
 jobs:
   cicd-linux-docker:
     name: Cargo and npm build
-    runs-on: ubuntu-latest
+    #runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -135,7 +136,8 @@ jobs:
 
   cicd-docker:
     name: CICD Docker
-    runs-on: ubuntu-latest
+    #runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     needs: cicd-linux-docker
     steps:
       - name: Download app archive
