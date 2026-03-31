@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Button, Form, Badge, Modal, Spinner, BootstrapAlert } from 'react-bootstrap';
-import apiService from '../../services/api';
-import { Container, ContainerStatus } from '../../types/containers';
+import { Card, Button, Form, Badge, Modal, Spinner, Alert as BootstrapAlert } from 'react-bootstrap';
+import apiService from '../services/api';
+import { Container, ContainerStatus } from '../types/containers';
 import './ContainerList.css';
 
 const ContainerList: React.FC = () => {
@@ -21,7 +21,7 @@ const ContainerList: React.FC = () => {
     try {
       setLoading(true);
       const data = await apiService.getContainers();
-      setContainers(filterStatus ? data.filter(c => c.status === filterStatus) : data);
+      setContainers(filterStatus ? data.filter((c: Container) => c.status === filterStatus) : data);
     } catch (err) {
       console.error('Error loading containers:', err);
     } finally {
@@ -53,7 +53,7 @@ const ContainerList: React.FC = () => {
   };
 
   const getStatusBadge = (status: ContainerStatus) => {
-    const variants = {
+    const variants: Record<ContainerStatus, string> = {
       Running: 'success',
       Stopped: 'secondary',
       Paused: 'warning',

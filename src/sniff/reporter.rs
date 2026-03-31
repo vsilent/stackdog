@@ -3,12 +3,12 @@
 //! Converts log summaries and anomalies into alerts, then dispatches
 //! them via the existing notification channels.
 
-use anyhow::Result;
 use crate::alerting::alert::{Alert, AlertSeverity, AlertType};
-use crate::alerting::notifications::{NotificationChannel, NotificationConfig, route_by_severity};
-use crate::sniff::analyzer::{LogSummary, LogAnomaly, AnomalySeverity};
+use crate::alerting::notifications::{route_by_severity, NotificationConfig};
 use crate::database::connection::DbPool;
 use crate::database::repositories::log_sources;
+use crate::sniff::analyzer::{AnomalySeverity, LogSummary};
+use anyhow::Result;
 
 /// Reports log analysis results to alert channels and persists summaries
 pub struct Reporter {
@@ -17,7 +17,9 @@ pub struct Reporter {
 
 impl Reporter {
     pub fn new(notification_config: NotificationConfig) -> Self {
-        Self { notification_config }
+        Self {
+            notification_config,
+        }
     }
 
     /// Map anomaly severity to alert severity
@@ -36,16 +38,21 @@ impl Reporter {
 
         // Persist summary to database
         if let Some(pool) = pool {
-            log::debug!("Persisting summary for source {} to database", summary.source_id);
+            log::debug!(
+                "Persisting summary for source {} to database",
+                summary.source_id
+            );
             let _ = log_sources::create_log_summary(
                 pool,
-                &summary.source_id,
-                &summary.summary_text,
-                &summary.period_start.to_rfc3339(),
-                &summary.period_end.to_rfc3339(),
-                summary.total_entries as i64,
-                summary.error_count as i64,
-                summary.warning_count as i64,
+                log_sources::CreateLogSummaryParams {
+                    source_id: &summary.source_id,
+                    summary_text: &summary.summary_text,
+                    period_start: &summary.period_start.to_rfc3339(),
+                    period_end: &summary.period_end.to_rfc3339(),
+                    total_entries: summary.total_entries as i64,
+                    error_count: summary.error_count as i64,
+                    warning_count: summary.warning_count as i64,
+                },
             );
         }
 
@@ -55,7 +62,8 @@ impl Reporter {
 
             log::debug!(
                 "Generating alert: severity={}, description={}",
-                anomaly.severity, anomaly.description
+                anomaly.severity,
+                anomaly.description
             );
 
             let alert = Alert::new(
@@ -107,8 +115,9 @@ pub struct ReportResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::database::connection::{create_pool, init_database};
+    use crate::sniff::analyzer::LogAnomaly;
+    use chrono::Utc;
 
     fn make_summary(anomalies: Vec<LogAnomaly>) -> LogSummary {
         LogSummary {
@@ -126,10 +135,22 @@ mod tests {
 
     #[test]
     fn test_map_severity() {
-        assert_eq!(Reporter::map_severity(&AnomalySeverity::Low), AlertSeverity::Low);
-        assert_eq!(Reporter::map_severity(&AnomalySeverity::Medium), AlertSeverity::Medium);
-        assert_eq!(Reporter::map_severity(&AnomalySeverity::High), AlertSeverity::High);
-        assert_eq!(Reporter::map_severity(&AnomalySeverity::Critical), AlertSeverity::Critical);
+        assert_eq!(
+            Reporter::map_severity(&AnomalySeverity::Low),
+            AlertSeverity::Low
+        );
+        assert_eq!(
+            Reporter::map_severity(&AnomalySeverity::Medium),
+            AlertSeverity::Medium
+        );
+        assert_eq!(
+            Reporter::map_severity(&AnomalySeverity::High),
+            AlertSeverity::High
+        );
+        assert_eq!(
+            Reporter::map_severity(&AnomalySeverity::Critical),
+            AlertSeverity::Critical
+        );
     }
 
     #[test]
@@ -145,13 +166,11 @@ mod tests {
     #[test]
     fn test_report_with_anomalies_sends_alerts() {
         let reporter = Reporter::new(NotificationConfig::default());
-        let summary = make_summary(vec![
-            LogAnomaly {
-                description: "High error rate".into(),
-                severity: AnomalySeverity::High,
-                sample_line: "ERROR: connection failed".into(),
-            },
-        ]);
+        let summary = make_summary(vec![LogAnomaly {
+            description: "High error rate".into(),
+            severity: AnomalySeverity::High,
+            sample_line: "ERROR: connection failed".into(),
+        }]);
 
         let result = reporter.report(&summary, None).unwrap();
         assert_eq!(result.anomalies_reported, 1);

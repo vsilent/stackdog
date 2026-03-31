@@ -2,8 +2,6 @@
 //!
 //! Extracts features from security events for anomaly detection
 
-use anyhow::Result;
-
 /// Security features for ML model
 pub struct SecurityFeatures {
     pub syscall_rate: f64,

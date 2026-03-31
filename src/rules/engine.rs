@@ -2,10 +2,9 @@
 //!
 //! Manages and evaluates security rules
 
-use anyhow::Result;
 use crate::events::security::SecurityEvent;
-use crate::rules::rule::{Rule, RuleResult};
 use crate::rules::result::RuleEvaluationResult;
+use crate::rules::rule::{Rule, RuleResult};
 
 /// Rule engine for evaluating security rules
 pub struct RuleEngine {
@@ -21,7 +20,7 @@ impl RuleEngine {
             enabled_rules: std::collections::HashSet::new(),
         }
     }
-    
+
     /// Register a rule with the engine
     pub fn register_rule(&mut self, rule: Box<dyn Rule>) {
         let name = rule.name().to_string();
@@ -30,13 +29,13 @@ impl RuleEngine {
         // Sort by priority after adding
         self.rules.sort_by_key(|r| r.priority());
     }
-    
+
     /// Remove a rule by name
     pub fn remove_rule(&mut self, name: &str) {
         self.rules.retain(|r| r.name() != name);
         self.enabled_rules.remove(name);
     }
-    
+
     /// Evaluate all rules against an event
     pub fn evaluate(&self, event: &SecurityEvent) -> Vec<RuleResult> {
         self.rules
@@ -48,51 +47,45 @@ impl RuleEngine {
             .map(|rule| rule.evaluate(event))
             .collect()
     }
-    
+
     /// Evaluate with detailed results
     pub fn evaluate_detailed(&self, event: &SecurityEvent) -> Vec<RuleEvaluationResult> {
         self.rules
             .iter()
-            .filter(|rule| {
-                self.enabled_rules.contains(rule.name()) && rule.enabled()
-            })
+            .filter(|rule| self.enabled_rules.contains(rule.name()) && rule.enabled())
             .map(|rule| {
                 let result = rule.evaluate(event);
-                RuleEvaluationResult::new(
-                    rule.name().to_string(),
-                    event.clone(),
-                    result,
-                )
+                RuleEvaluationResult::new(rule.name().to_string(), event.clone(), result)
             })
             .collect()
     }
-    
+
     /// Get the number of registered rules
     pub fn rule_count(&self) -> usize {
         self.rules.len()
     }
-    
+
     /// Clear all rules
     pub fn clear_all_rules(&mut self) {
         self.rules.clear();
         self.enabled_rules.clear();
     }
-    
+
     /// Enable a rule
     pub fn enable_rule(&mut self, name: &str) {
         self.enabled_rules.insert(name.to_string());
     }
-    
+
     /// Disable a rule
     pub fn disable_rule(&mut self, name: &str) {
         self.enabled_rules.remove(name);
     }
-    
+
     /// Check if a rule is enabled
     pub fn is_rule_enabled(&self, name: &str) -> bool {
         self.enabled_rules.contains(name)
     }
-    
+
     /// Get all rule names
     pub fn rule_names(&self) -> Vec<&str> {
         self.rules.iter().map(|r| r.name()).collect()
@@ -108,31 +101,7 @@ impl Default for RuleEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    struct TestRule {
-        name: String,
-        priority: u32,
-        should_match: bool,
-    }
-    
-    impl Rule for TestRule {
-        fn evaluate(&self, _event: &SecurityEvent) -> RuleResult {
-            if self.should_match {
-                RuleResult::Match
-            } else {
-                RuleResult::NoMatch
-            }
-        }
-        
-        fn name(&self) -> &str {
-            &self.name
-        }
-        
-        fn priority(&self) -> u32 {
-            self.priority
-        }
-    }
-    
+
     #[test]
     fn test_engine_creation() {
         let engine = RuleEngine::new();

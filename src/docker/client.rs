@@ -1,12 +1,12 @@
 //! Docker client wrapper
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use std::collections::HashMap;
 
 // Bollard imports
-use bollard::Docker;
-use bollard::container::{ListContainersOptions, InspectContainerOptions};
+use bollard::container::{InspectContainerOptions, ListContainersOptions};
 use bollard::network::{DisconnectNetworkOptions, ListNetworksOptions};
+use bollard::Docker;
 
 /// Docker client wrapper
 pub struct DockerClient {
@@ -16,17 +16,18 @@ pub struct DockerClient {
 impl DockerClient {
     /// Create a new Docker client
     pub async fn new() -> Result<Self> {
-        let client = Docker::connect_with_local_defaults()
-            .context("Failed to connect to Docker daemon")?;
-        
+        let client =
+            Docker::connect_with_local_defaults().context("Failed to connect to Docker daemon")?;
+
         // Test connection
-        client.ping()
+        client
+            .ping()
             .await
             .context("Failed to ping Docker daemon")?;
-        
+
         Ok(Self { client })
     }
-    
+
     /// List all containers
     pub async fn list_containers(&self, all: bool) -> Result<Vec<ContainerInfo>> {
         let options: Option<ListContainersOptions<String>> = Some(ListContainersOptions {
@@ -35,11 +36,12 @@ impl DockerClient {
             ..Default::default()
         });
 
-        let containers: Vec<bollard::models::ContainerSummary> = self.client
+        let containers: Vec<bollard::models::ContainerSummary> = self
+            .client
             .list_containers(options)
             .await
             .context("Failed to list containers")?;
-        
+
         let mut result = Vec::new();
         for container in containers {
             if let Some(id) = container.id {
@@ -47,23 +49,26 @@ impl DockerClient {
                 result.push(info);
             }
         }
-        
+
         Ok(result)
     }
-    
+
     /// Get container info by ID
     pub async fn get_container_info(&self, container_id: &str) -> Result<ContainerInfo> {
-        let inspect = self.client
+        let inspect = self
+            .client
             .inspect_container(container_id, None::<InspectContainerOptions>)
             .await
             .context("Failed to inspect container")?;
-        
+
         let config = inspect.config.unwrap_or_default();
         let state = inspect.state.unwrap_or_default();
-        
+
         Ok(ContainerInfo {
             id: container_id.to_string(),
-            name: config.hostname.unwrap_or_else(|| container_id[..12].to_string()),
+            name: config
+                .hostname
+                .unwrap_or_else(|| container_id[..12].to_string()),
             image: config.image.unwrap_or_else(|| "unknown".to_string()),
             status: if state.running.unwrap_or(false) {
                 "Running"
@@ -71,21 +76,27 @@ impl DockerClient {
                 "Paused"
             } else {
                 "Stopped"
-            }.to_string(),
+            }
+            .to_string(),
             created: state.started_at.unwrap_or_default(),
-            network_settings: inspect.network_settings.map(|ns| {
-                ns.networks.unwrap_or_default()
-                    .into_iter()
-                    .map(|(name, endpoint)| (name, endpoint.ip_address.unwrap_or_default()))
-                    .collect()
-            }).unwrap_or_default(),
+            network_settings: inspect
+                .network_settings
+                .map(|ns| {
+                    ns.networks
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|(name, endpoint)| (name, endpoint.ip_address.unwrap_or_default()))
+                        .collect()
+                })
+                .unwrap_or_default(),
         })
     }
-    
+
     /// Quarantine a container (disconnect from all networks)
     pub async fn quarantine_container(&self, container_id: &str) -> Result<()> {
         // List all networks
-        let networks: Vec<bollard::models::Network> = self.client
+        let networks: Vec<bollard::models::Network> = self
+            .client
             .list_networks(None::<ListNetworksOptions<String>>)
             .await
             .context("Failed to list networks")?;
@@ -103,26 +114,28 @@ impl DockerClient {
                     force: true,
                 };
 
-                let _ = self.client
-                    .disconnect_network(&name, options)
-                    .await;
+                let _ = self.client.disconnect_network(&name, options).await;
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Release a container (reconnect to default network)
     pub async fn release_container(&self, container_id: &str, network_name: &str) -> Result<()> {
         // Connect to the specified network
         // Note: This requires additional implementation for network connection
         // For now, just log the action
-        log::info!("Would reconnect container {} to network {}", container_id, network_name);
+        log::info!(
+            "Would reconnect container {} to network {}",
+            container_id,
+            network_name
+        );
         Ok(())
     }
-    
+
     /// Get container stats
-    pub async fn get_container_stats(&self, container_id: &str) -> Result<ContainerStats> {
+    pub async fn get_container_stats(&self, _container_id: &str) -> Result<ContainerStats> {
         // Implementation would use Docker stats API
         // For now, return placeholder
         Ok(ContainerStats {
@@ -164,7 +177,7 @@ mod tests {
     async fn test_docker_client_creation() {
         // This test requires Docker daemon running
         let result = DockerClient::new().await;
-        
+
         // Test may fail if Docker is not running
         if result.is_ok() {
             let client = result.unwrap();

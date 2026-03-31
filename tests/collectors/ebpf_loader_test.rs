@@ -5,7 +5,6 @@
 #[cfg(target_os = "linux")]
 mod linux_tests {
     use stackdog::collectors::ebpf::loader::{EbpfLoader, LoadError};
-    use anyhow::Result;
 
     #[test]
     fn test_ebpf_loader_creation() {
@@ -15,8 +14,7 @@ mod linux_tests {
 
     #[test]
     fn test_ebpf_loader_default() {
-        let loader = EbpfLoader::default();
-        assert!(loader.is_ok(), "EbpfLoader::default() should succeed");
+        let _loader = EbpfLoader::default();
     }
 
     #[test]
@@ -30,10 +28,10 @@ mod linux_tests {
     #[ignore = "requires root and eBPF support"]
     fn test_ebpf_program_load_success() {
         let mut loader = EbpfLoader::new().expect("Failed to create loader");
-        
+
         // Try to load a program (this requires the eBPF ELF file)
         let result = loader.load_program_from_bytes(&[]);
-        
+
         // Should fail with empty bytes, but not panic
         assert!(result.is_err());
     }
@@ -43,8 +41,11 @@ mod linux_tests {
         let error = LoadError::ProgramNotFound("test_program".to_string());
         let msg = format!("{}", error);
         assert!(msg.contains("test_program"));
-        
-        let error = LoadError::KernelVersionTooLow { required: 4, current: 3 };
+
+        let error = LoadError::KernelVersionTooLow {
+            required: "4".to_string(),
+            current: "3".to_string(),
+        };
         let msg = format!("{}", error);
         assert!(msg.contains("4.19"));
     }
@@ -58,10 +59,10 @@ mod cross_platform_tests {
     fn test_ebpf_loader_creation_cross_platform() {
         // This test should work on all platforms
         let result = EbpfLoader::new();
-        
+
         #[cfg(target_os = "linux")]
         assert!(result.is_ok());
-        
+
         #[cfg(not(target_os = "linux"))]
         assert!(result.is_err()); // Should error on non-Linux
     }
@@ -69,10 +70,10 @@ mod cross_platform_tests {
     #[test]
     fn test_ebpf_is_linux_check() {
         use stackdog::collectors::ebpf::loader::is_linux;
-        
+
         #[cfg(target_os = "linux")]
         assert!(is_linux());
-        
+
         #[cfg(not(target_os = "linux"))]
         assert!(!is_linux());
     }

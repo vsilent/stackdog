@@ -1,10 +1,10 @@
 //! Log sources and summaries API endpoints
 
-use actix_web::{web, HttpResponse, Responder};
-use serde::Deserialize;
 use crate::database::connection::DbPool;
 use crate::database::repositories::log_sources;
 use crate::sniff::discovery::{LogSource, LogSourceType};
+use actix_web::{web, HttpResponse, Responder};
+use serde::Deserialize;
 
 /// Query parameters for summary filtering
 #[derive(Debug, Deserialize)]
@@ -102,7 +102,9 @@ pub async fn list_summaries(
             Ok(sources) => {
                 let mut all_summaries = Vec::new();
                 for source in &sources {
-                    if let Ok(summaries) = log_sources::list_summaries_for_source(&pool, &source.path_or_id) {
+                    if let Ok(summaries) =
+                        log_sources::list_summaries_for_source(&pool, &source.path_or_id)
+                    {
                         all_summaries.extend(summaries);
                     }
                 }
@@ -136,15 +138,15 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             .route("/sources", web::post().to(add_source))
             .route("/sources/{path}", web::get().to(get_source))
             .route("/sources/{path}", web::delete().to(delete_source))
-            .route("/summaries", web::get().to(list_summaries))
+            .route("/summaries", web::get().to(list_summaries)),
     );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{test, App};
     use crate::database::connection::{create_pool, init_database};
+    use actix_web::{test, App};
 
     fn setup_pool() -> DbPool {
         let pool = create_pool(":memory:").unwrap();
@@ -158,10 +160,13 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(pool))
-                .configure(configure_routes)
-        ).await;
+                .configure(configure_routes),
+        )
+        .await;
 
-        let req = test::TestRequest::get().uri("/api/logs/sources").to_request();
+        let req = test::TestRequest::get()
+            .uri("/api/logs/sources")
+            .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
@@ -172,8 +177,9 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(pool))
-                .configure(configure_routes)
-        ).await;
+                .configure(configure_routes),
+        )
+        .await;
 
         let body = serde_json::json!({ "path": "/var/log/test.log", "name": "Test Log" });
         let req = test::TestRequest::post()
@@ -190,8 +196,9 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(pool))
-                .configure(configure_routes)
-        ).await;
+                .configure(configure_routes),
+        )
+        .await;
 
         // Add a source
         let body = serde_json::json!({ "path": "/var/log/app.log" });
@@ -202,7 +209,9 @@ mod tests {
         test::call_service(&app, req).await;
 
         // List sources
-        let req = test::TestRequest::get().uri("/api/logs/sources").to_request();
+        let req = test::TestRequest::get()
+            .uri("/api/logs/sources")
+            .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
 
@@ -216,10 +225,13 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(pool))
-                .configure(configure_routes)
-        ).await;
+                .configure(configure_routes),
+        )
+        .await;
 
-        let req = test::TestRequest::get().uri("/api/logs/sources/nonexistent").to_request();
+        let req = test::TestRequest::get()
+            .uri("/api/logs/sources/nonexistent")
+            .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
     }
@@ -229,14 +241,19 @@ mod tests {
         let pool = setup_pool();
 
         // Add source directly via repository (avoids route path issues)
-        let source = LogSource::new(LogSourceType::CustomFile, "test-delete.log".into(), "Test Delete".into());
+        let source = LogSource::new(
+            LogSourceType::CustomFile,
+            "test-delete.log".into(),
+            "Test Delete".into(),
+        );
         log_sources::upsert_log_source(&pool, &source).unwrap();
 
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(pool))
-                .configure(configure_routes)
-        ).await;
+                .configure(configure_routes),
+        )
+        .await;
 
         let req = test::TestRequest::delete()
             .uri("/api/logs/sources/test-delete.log")
@@ -251,10 +268,13 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(pool))
-                .configure(configure_routes)
-        ).await;
+                .configure(configure_routes),
+        )
+        .await;
 
-        let req = test::TestRequest::get().uri("/api/logs/summaries").to_request();
+        let req = test::TestRequest::get()
+            .uri("/api/logs/summaries")
+            .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
@@ -265,8 +285,9 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(pool))
-                .configure(configure_routes)
-        ).await;
+                .configure(configure_routes),
+        )
+        .await;
 
         let req = test::TestRequest::get()
             .uri("/api/logs/summaries?source_id=test-source")

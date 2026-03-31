@@ -18,9 +18,9 @@ jobs:
     strategy:
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          - target: x86_64-unknown-linux-musl
             artifact: stackdog-linux-x86_64
-          - target: aarch64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-musl
             artifact: stackdog-linux-aarch64
 
     steps:

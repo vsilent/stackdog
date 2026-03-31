@@ -67,7 +67,10 @@ mod tests {
     #[test]
     fn test_no_subcommand_defaults_to_none() {
         let cli = Cli::parse_from(["stackdog"]);
-        assert!(cli.command.is_none(), "No subcommand should yield None (default to serve)");
+        assert!(
+            cli.command.is_none(),
+            "No subcommand should yield None (default to serve)"
+        );
     }
 
     #[test]
@@ -80,7 +83,17 @@ mod tests {
     fn test_sniff_subcommand_defaults() {
         let cli = Cli::parse_from(["stackdog", "sniff"]);
         match cli.command {
-            Some(Command::Sniff { once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url, slack_webhook }) => {
+            Some(Command::Sniff {
+                once,
+                consume,
+                output,
+                sources,
+                interval,
+                ai_provider,
+                ai_model,
+                ai_api_url,
+                slack_webhook,
+            }) => {
                 assert!(!once);
                 assert!(!consume);
                 assert_eq!(output, "./stackdog-logs/");
@@ -116,19 +129,37 @@ mod tests {
     #[test]
     fn test_sniff_with_all_options() {
         let cli = Cli::parse_from([
-            "stackdog", "sniff",
+            "stackdog",
+            "sniff",
             "--once",
             "--consume",
-            "--output", "/tmp/logs/",
-            "--sources", "/var/log/syslog,/var/log/auth.log",
-            "--interval", "60",
-            "--ai-provider", "openai",
-            "--ai-model", "gpt-4o-mini",
-            "--ai-api-url", "https://api.openai.com/v1",
-            "--slack-webhook", "https://hooks.slack.com/services/T/B/xxx",
+            "--output",
+            "/tmp/logs/",
+            "--sources",
+            "/var/log/syslog,/var/log/auth.log",
+            "--interval",
+            "60",
+            "--ai-provider",
+            "openai",
+            "--ai-model",
+            "gpt-4o-mini",
+            "--ai-api-url",
+            "https://api.openai.com/v1",
+            "--slack-webhook",
+            "https://hooks.slack.com/services/T/B/xxx",
         ]);
         match cli.command {
-            Some(Command::Sniff { once, consume, output, sources, interval, ai_provider, ai_model, ai_api_url, slack_webhook }) => {
+            Some(Command::Sniff {
+                once,
+                consume,
+                output,
+                sources,
+                interval,
+                ai_provider,
+                ai_model,
+                ai_api_url,
+                slack_webhook,
+            }) => {
                 assert!(once);
                 assert!(consume);
                 assert_eq!(output, "/tmp/logs/");
@@ -137,7 +168,10 @@ mod tests {
                 assert_eq!(ai_provider.unwrap(), "openai");
                 assert_eq!(ai_model.unwrap(), "gpt-4o-mini");
                 assert_eq!(ai_api_url.unwrap(), "https://api.openai.com/v1");
-                assert_eq!(slack_webhook.unwrap(), "https://hooks.slack.com/services/T/B/xxx");
+                assert_eq!(
+                    slack_webhook.unwrap(),
+                    "https://hooks.slack.com/services/T/B/xxx"
+                );
             }
             _ => panic!("Expected Sniff command"),
         }
@@ -157,13 +191,20 @@ mod tests {
     #[test]
     fn test_sniff_with_ollama_provider_and_model() {
         let cli = Cli::parse_from([
-            "stackdog", "sniff",
+            "stackdog",
+            "sniff",
             "--once",
-            "--ai-provider", "ollama",
-            "--ai-model", "qwen2.5-coder:latest",
+            "--ai-provider",
+            "ollama",
+            "--ai-model",
+            "qwen2.5-coder:latest",
         ]);
         match cli.command {
-            Some(Command::Sniff { ai_provider, ai_model, .. }) => {
+            Some(Command::Sniff {
+                ai_provider,
+                ai_model,
+                ..
+            }) => {
                 assert_eq!(ai_provider.unwrap(), "ollama");
                 assert_eq!(ai_model.unwrap(), "qwen2.5-coder:latest");
             }

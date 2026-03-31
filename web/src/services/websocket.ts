@@ -6,6 +6,17 @@ type WebSocketEvent =
   | 'stats:updated';
 
 type EventHandler = (data: any) => void;
+type EnvLike = {
+  REACT_APP_WS_URL?: string;
+  APP_PORT?: string;
+  REACT_APP_API_PORT?: string;
+};
+
+declare global {
+  interface Window {
+    __STACKDOG_ENV__?: EnvLike;
+  }
+}
 
 export class WebSocketService {
   private ws: WebSocket | null = null;
@@ -15,14 +26,22 @@ export class WebSocketService {
   private reconnectDelay = 1000;
   private eventHandlers: Map<WebSocketEvent, Set<EventHandler>> = new Map();
   private shouldReconnect = true;
+  private failedInitialConnect = false;
 
   constructor(url?: string) {
-    this.url = url || process.env.REACT_APP_WS_URL || 'ws://localhost:5000/ws';
+    const env = ((globalThis as { __STACKDOG_ENV__?: EnvLike }).__STACKDOG_ENV__ ??
+      {}) as EnvLike;
+    const apiPort = env.REACT_APP_API_PORT || env.APP_PORT || '5555';
+    this.url = url || env.REACT_APP_WS_URL || `ws://localhost:${apiPort}/ws`;
   }
 
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
+        if (this.failedInitialConnect) {
+          resolve();
+          return;
+        }
         this.ws = new WebSocket(this.url);
 
         this.ws.onopen = () => {
@@ -42,17 +61,23 @@ export class WebSocketService {
 
         this.ws.onclose = () => {
           console.log('WebSocket disconnected');
-          if (this.shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+          if (!this.failedInitialConnect && this.shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
             this.scheduleReconnect();
           }
         };
 
         this.ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
-          reject(error);
+          // WebSocket endpoint may be intentionally unavailable in some environments.
+          // Fall back to REST-only mode after the first failed connect.
+          this.failedInitialConnect = true;
+          this.shouldReconnect = false;
+          console.warn('WebSocket unavailable, running in polling mode');
+          resolve();
         };
       } catch (error) {
-        reject(error);
+        this.failedInitialConnect = true;
+        this.shouldReconnect = false;
+        resolve();
       }
     });
   }
@@ -96,6 +121,7 @@ export class WebSocketService {
 
   disconnect(): void {
     this.shouldReconnect = false;
+    this.failedInitialConnect = false;
     if (this.ws) {
       this.ws.close();
       this.ws = null;

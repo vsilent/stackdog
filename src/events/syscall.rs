@@ -11,7 +11,7 @@ pub enum SyscallType {
     // Process execution
     Execve,
     Execveat,
-    
+
     // Network
     Connect,
     Accept,
@@ -19,23 +19,23 @@ pub enum SyscallType {
     Listen,
     Socket,
     Sendto,
-    
+
     // File operations
     Open,
     Openat,
     Close,
     Read,
     Write,
-    
+
     // Security-sensitive
     Ptrace,
     Setuid,
     Setgid,
-    
+
     // Mount operations
     Mount,
     Umount,
-    
+
     #[default]
     Unknown,
 }
@@ -53,12 +53,7 @@ pub struct SyscallEvent {
 
 impl SyscallEvent {
     /// Create a new syscall event
-    pub fn new(
-        pid: u32,
-        uid: u32,
-        syscall_type: SyscallType,
-        timestamp: DateTime<Utc>,
-    ) -> Self {
+    pub fn new(pid: u32, uid: u32, syscall_type: SyscallType, timestamp: DateTime<Utc>) -> Self {
         Self {
             pid,
             uid,
@@ -68,17 +63,17 @@ impl SyscallEvent {
             comm: None,
         }
     }
-    
+
     /// Create a builder for SyscallEvent
     pub fn builder() -> SyscallEventBuilder {
         SyscallEventBuilder::new()
     }
-    
+
     /// Get the PID if this is a syscall event
     pub fn pid(&self) -> Option<u32> {
         Some(self.pid)
     }
-    
+
     /// Get the UID if this is a syscall event
     pub fn uid(&self) -> Option<u32> {
         Some(self.uid)
@@ -106,37 +101,37 @@ impl SyscallEventBuilder {
             comm: None,
         }
     }
-    
+
     pub fn pid(mut self, pid: u32) -> Self {
         self.pid = pid;
         self
     }
-    
+
     pub fn uid(mut self, uid: u32) -> Self {
         self.uid = uid;
         self
     }
-    
+
     pub fn syscall_type(mut self, syscall_type: SyscallType) -> Self {
         self.syscall_type = syscall_type;
         self
     }
-    
+
     pub fn timestamp(mut self, timestamp: DateTime<Utc>) -> Self {
         self.timestamp = Some(timestamp);
         self
     }
-    
+
     pub fn container_id(mut self, container_id: Option<String>) -> Self {
         self.container_id = container_id;
         self
     }
-    
+
     pub fn comm(mut self, comm: Option<String>) -> Self {
         self.comm = comm;
         self
     }
-    
+
     pub fn build(self) -> SyscallEvent {
         SyscallEvent {
             pid: self.pid,
@@ -158,26 +153,21 @@ impl Default for SyscallEventBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_syscall_type_default() {
         assert_eq!(SyscallType::default(), SyscallType::Unknown);
     }
-    
+
     #[test]
     fn test_syscall_event_new() {
-        let event = SyscallEvent::new(
-            1234,
-            1000,
-            SyscallType::Execve,
-            Utc::now(),
-        );
+        let event = SyscallEvent::new(1234, 1000, SyscallType::Execve, Utc::now());
         assert_eq!(event.pid, 1234);
         assert_eq!(event.uid, 1000);
         assert_eq!(event.pid(), Some(1234));
         assert_eq!(event.uid(), Some(1000));
     }
-    
+
     #[test]
     fn test_syscall_event_builder() {
         let event = SyscallEvent::builder()

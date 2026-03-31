@@ -3,7 +3,6 @@
 //! Notification channels for alert delivery
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
 
 use crate::alerting::alert::{Alert, AlertSeverity};
 
@@ -13,10 +12,10 @@ pub struct NotificationConfig {
     slack_webhook: Option<String>,
     smtp_host: Option<String>,
     smtp_port: Option<u16>,
-    smtp_user: Option<String>,
-    smtp_password: Option<String>,
+    _smtp_user: Option<String>,
+    _smtp_password: Option<String>,
     webhook_url: Option<String>,
-    email_recipients: Vec<String>,
+    _email_recipients: Vec<String>,
 }
 
 impl NotificationConfig {
@@ -26,52 +25,52 @@ impl NotificationConfig {
             slack_webhook: None,
             smtp_host: None,
             smtp_port: None,
-            smtp_user: None,
-            smtp_password: None,
+            _smtp_user: None,
+            _smtp_password: None,
             webhook_url: None,
-            email_recipients: Vec::new(),
+            _email_recipients: Vec::new(),
         }
     }
-    
+
     /// Set Slack webhook
     pub fn with_slack_webhook(mut self, url: String) -> Self {
         self.slack_webhook = Some(url);
         self
     }
-    
+
     /// Set SMTP host
     pub fn with_smtp_host(mut self, host: String) -> Self {
         self.smtp_host = Some(host);
         self
     }
-    
+
     /// Set SMTP port
     pub fn with_smtp_port(mut self, port: u16) -> Self {
         self.smtp_port = Some(port);
         self
     }
-    
+
     /// Set webhook URL
     pub fn with_webhook_url(mut self, url: String) -> Self {
         self.webhook_url = Some(url);
         self
     }
-    
+
     /// Get Slack webhook
     pub fn slack_webhook(&self) -> Option<&str> {
         self.slack_webhook.as_deref()
     }
-    
+
     /// Get SMTP host
     pub fn smtp_host(&self) -> Option<&str> {
         self.smtp_host.as_deref()
     }
-    
+
     /// Get SMTP port
     pub fn smtp_port(&self) -> Option<u16> {
         self.smtp_port
     }
-    
+
     /// Get webhook URL
     pub fn webhook_url(&self) -> Option<&str> {
         self.webhook_url.as_deref()
@@ -97,7 +96,7 @@ impl NotificationChannel {
             NotificationChannel::Webhook => self.send_webhook(alert, _config),
         }
     }
-    
+
     /// Send to console
     fn send_console(&self, alert: &Alert) -> Result<NotificationResult> {
         println!(
@@ -107,10 +106,10 @@ impl NotificationChannel {
             alert.alert_type(),
             alert.message()
         );
-        
+
         Ok(NotificationResult::Success("sent to console".to_string()))
     }
-    
+
     /// Send to Slack via incoming webhook
     fn send_slack(&self, alert: &Alert, config: &NotificationConfig) -> Result<NotificationResult> {
         if let Some(webhook_url) = config.slack_webhook() {
@@ -134,20 +133,28 @@ impl NotificationChannel {
                         let status = resp.status();
                         let body = resp.text().unwrap_or_default();
                         log::warn!("Slack API returned {}: {}", status, body);
-                        Ok(NotificationResult::Failure(format!("Slack returned {}: {}", status, body)))
+                        Ok(NotificationResult::Failure(format!(
+                            "Slack returned {}: {}",
+                            status, body
+                        )))
                     }
                 }
                 Err(e) => {
                     log::warn!("Failed to send Slack notification: {}", e);
-                    Ok(NotificationResult::Failure(format!("Slack request failed: {}", e)))
+                    Ok(NotificationResult::Failure(format!(
+                        "Slack request failed: {}",
+                        e
+                    )))
                 }
             }
         } else {
             log::debug!("Slack webhook not configured, skipping");
-            Ok(NotificationResult::Failure("Slack webhook not configured".to_string()))
+            Ok(NotificationResult::Failure(
+                "Slack webhook not configured".to_string(),
+            ))
         }
     }
-    
+
     /// Send via email
     fn send_email(&self, alert: &Alert, config: &NotificationConfig) -> Result<NotificationResult> {
         // In production, this would send SMTP email
@@ -156,19 +163,27 @@ impl NotificationChannel {
             log::info!("Would send email: {}", alert.message());
             Ok(NotificationResult::Success("sent via email".to_string()))
         } else {
-            Ok(NotificationResult::Failure("SMTP not configured".to_string()))
+            Ok(NotificationResult::Failure(
+                "SMTP not configured".to_string(),
+            ))
         }
     }
-    
+
     /// Send to webhook
-    fn send_webhook(&self, alert: &Alert, config: &NotificationConfig) -> Result<NotificationResult> {
+    fn send_webhook(
+        &self,
+        alert: &Alert,
+        config: &NotificationConfig,
+    ) -> Result<NotificationResult> {
         // In production, this would make HTTP POST
         // For now, just log
         if config.webhook_url().is_some() {
             log::info!("Would send to webhook: {}", alert.message());
             Ok(NotificationResult::Success("sent to webhook".to_string()))
         } else {
-            Ok(NotificationResult::Failure("Webhook URL not configured".to_string()))
+            Ok(NotificationResult::Failure(
+                "Webhook URL not configured".to_string(),
+            ))
         }
     }
 }
@@ -209,10 +224,7 @@ pub fn route_by_severity(severity: AlertSeverity) -> Vec<NotificationChannel> {
             ]
         }
         AlertSeverity::Medium => {
-            vec![
-                NotificationChannel::Console,
-                NotificationChannel::Slack,
-            ]
+            vec![NotificationChannel::Console, NotificationChannel::Slack]
         }
         AlertSeverity::Low => {
             vec![NotificationChannel::Console]
@@ -248,7 +260,8 @@ pub fn build_slack_message(alert: &Alert) -> String {
                 {"title": "Time", "value": alert.timestamp().to_rfc3339(), "short": true}
             ]
         }]
-    }).to_string()
+    })
+    .to_string()
 }
 
 /// Build webhook payload
@@ -272,7 +285,7 @@ pub fn build_webhook_payload(alert: &Alert) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_console_notification() {
         let channel = NotificationChannel::Console;
@@ -281,22 +294,22 @@ mod tests {
             AlertSeverity::High,
             "Test".to_string(),
         );
-        
+
         let result = channel.send(&alert, &NotificationConfig::default());
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_severity_to_slack_color() {
         assert_eq!(severity_to_slack_color(AlertSeverity::Critical), "#FF0000");
         assert_eq!(severity_to_slack_color(AlertSeverity::High), "#FF8C00");
     }
-    
+
     #[test]
     fn test_route_by_severity() {
         let critical_routes = route_by_severity(AlertSeverity::Critical);
         assert!(critical_routes.len() >= 3);
-        
+
         let info_routes = route_by_severity(AlertSeverity::Info);
         assert_eq!(info_routes.len(), 1);
     }

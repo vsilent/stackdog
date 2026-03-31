@@ -3,7 +3,7 @@
 //! Shared type definitions for eBPF programs and userspace
 
 /// eBPF syscall event structure
-/// 
+///
 /// This structure is shared between eBPF programs and userspace
 /// It must be C-compatible for efficient transfer via ring buffer
 #[repr(C)]
@@ -51,9 +51,7 @@ impl std::fmt::Debug for EbpfEventData {
 
 impl Default for EbpfEventData {
     fn default() -> Self {
-        Self {
-            raw: [0u8; 128],
-        }
+        Self { raw: [0u8; 128] }
     }
 }
 
@@ -71,7 +69,11 @@ pub struct ExecveData {
 
 impl Default for ExecveData {
     fn default() -> Self {
-        Self { filename_len: 0, filename: [0u8; 128], argc: 0 }
+        Self {
+            filename_len: 0,
+            filename: [0u8; 128],
+            argc: 0,
+        }
     }
 }
 
@@ -101,7 +103,11 @@ pub struct OpenatData {
 
 impl Default for OpenatData {
     fn default() -> Self {
-        Self { path_len: 0, path: [0u8; 256], flags: 0 }
+        Self {
+            path_len: 0,
+            path: [0u8; 256],
+            flags: 0,
+        }
     }
 }
 
@@ -132,13 +138,13 @@ impl EbpfSyscallEvent {
             data: EbpfEventData::default(),
         }
     }
-    
+
     /// Get command name as string
     pub fn comm_str(&self) -> String {
         let len = self.comm.iter().position(|&b| b == 0).unwrap_or(16);
         String::from_utf8_lossy(&self.comm[..len]).to_string()
     }
-    
+
     /// Set command name
     pub fn set_comm(&mut self, comm: &[u8]) {
         let len = comm.len().min(15);
@@ -151,32 +157,32 @@ impl EbpfSyscallEvent {
 pub fn to_syscall_event(ebpf_event: &EbpfSyscallEvent) -> crate::events::syscall::SyscallEvent {
     use crate::events::syscall::{SyscallEvent, SyscallType};
     use chrono::Utc;
-    
+
     // Convert syscall_id to SyscallType
     let syscall_type = match ebpf_event.syscall_id {
-        59 => SyscallType::Execve,    // sys_execve
-        42 => SyscallType::Connect,   // sys_connect
-        257 => SyscallType::Openat,   // sys_openat
-        101 => SyscallType::Ptrace,   // sys_ptrace
+        59 => SyscallType::Execve,  // sys_execve
+        42 => SyscallType::Connect, // sys_connect
+        257 => SyscallType::Openat, // sys_openat
+        101 => SyscallType::Ptrace, // sys_ptrace
         _ => SyscallType::Unknown,
     };
-    
+
     let mut event = SyscallEvent::new(
         ebpf_event.pid,
         ebpf_event.uid,
         syscall_type,
-        Utc::now(),  // Use current time (timestamp from eBPF may need conversion)
+        Utc::now(), // Use current time (timestamp from eBPF may need conversion)
     );
-    
+
     event.comm = Some(ebpf_event.comm_str());
-    
+
     event
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_event_creation() {
         let event = EbpfSyscallEvent::new(1234, 1000, 59);
@@ -184,28 +190,28 @@ mod tests {
         assert_eq!(event.uid, 1000);
         assert_eq!(event.syscall_id, 59);
     }
-    
+
     #[test]
     fn test_comm_str_empty() {
         let mut event = EbpfSyscallEvent::new(1234, 1000, 59);
         event.comm = [0u8; 16];
         assert_eq!(event.comm_str(), "");
     }
-    
+
     #[test]
     fn test_comm_str_short() {
         let mut event = EbpfSyscallEvent::new(1234, 1000, 59);
         event.set_comm(b"bash");
         assert_eq!(event.comm_str(), "bash");
     }
-    
+
     #[test]
     fn test_comm_str_exact_15() {
         let mut event = EbpfSyscallEvent::new(1234, 1000, 59);
         event.set_comm(b"longprocessname");
         assert_eq!(event.comm_str(), "longprocessname");
     }
-    
+
     #[test]
     fn test_set_comm_truncates() {
         let mut event = EbpfSyscallEvent::new(1234, 1000, 59);
