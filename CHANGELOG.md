@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **CLI startup robustness** — `.env` loading is now non-fatal.
+  - `stackdog --help` and other commands no longer panic when `.env` is missing or contains malformed lines.
+  - Stackdog now logs a warning and continues with existing environment variables.
+
+- **Installer release resolution** — `install.sh` now handles missing `/releases/latest` responses gracefully.
+  - Falls back to the most recent release entry when no stable "latest" release is available.
+  - Improves error messaging and updates install examples to use the `main` branch script URL.
+
 ### Added
 
 #### Log Sniffing & Analysis (`stackdog sniff`)

@@ -8,8 +8,13 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 use crate::sniff::reader::LogEntry;
+
+const MAX_PROMPT_LINES: usize = 200;
+const MAX_PROMPT_CHARS: usize = 16_000;
+const MAX_LINE_CHARS: usize = 500;
 
 /// Summary produced by AI analysis of log entries
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +74,17 @@ pub struct OpenAiAnalyzer {
 }
 
 impl OpenAiAnalyzer {
+    fn push_selected_index(
+        selected_indices: &mut Vec<usize>,
+        seen: &mut HashSet<usize>,
+        idx: usize,
+        total_entries: usize,
+    ) {
+        if idx < total_entries && seen.insert(idx) {
+            selected_indices.push(idx);
+        }
+    }
+
     pub fn new(api_url: String, api_key: Option<String>, model: String) -> Self {
         Self {
             api_url,
@@ -79,8 +95,21 @@ impl OpenAiAnalyzer {
     }
 
     fn build_prompt(entries: &[LogEntry]) -> String {
-        let lines: Vec<&str> = entries.iter().map(|e| e.line.as_str()).collect();
-        let log_block = lines.join("\n");
+        let prompt_entries = Self::select_prompt_entries(entries);
+        let included_count = prompt_entries.len();
+        let included_chars: usize = prompt_entries.iter().map(|line| line.len()).sum();
+        let was_truncated = included_count < entries.len();
+        let truncation_note = if was_truncated {
+            format!(
+                "Only {} of {} entries are included below to keep the request bounded. \
+                 Prioritize the included lines when identifying anomalies, but keep the full batch size in mind.\n",
+                included_count,
+                entries.len()
+            )
+        } else {
+            String::new()
+        };
+        let log_block = prompt_entries.join("\n");
 
         format!(
             "Analyze these log entries and provide a JSON response with:\n\
@@ -90,8 +119,106 @@ impl OpenAiAnalyzer {
              4. \"key_events\": Array of important events (max 5)\n\
              5. \"anomalies\": Array of objects with \"description\", \"severity\" (Low/Medium/High/Critical), \"sample_line\"\n\n\
              Respond ONLY with valid JSON, no markdown.\n\n\
-             Log entries:\n{}", log_block
+             Batch metadata:\n\
+             - total_entries: {}\n\
+             - included_entries: {}\n\
+             - included_characters: {}\n\
+             {}\
+             Log entries:\n{}",
+            entries.len(),
+            included_count,
+            included_chars,
+            truncation_note,
+            log_block
         )
+    }
+
+    fn select_prompt_entries(entries: &[LogEntry]) -> Vec<String> {
+        if entries.is_empty() {
+            return Vec::new();
+        }
+
+        let mut selected_indices = Vec::new();
+        let mut seen = HashSet::new();
+
+        for (idx, entry) in entries.iter().enumerate() {
+            if Self::is_priority_line(&entry.line) {
+                Self::push_selected_index(&mut selected_indices, &mut seen, idx, entries.len());
+            }
+        }
+
+        let recent_window_start = entries.len().saturating_sub(MAX_PROMPT_LINES);
+        for idx in recent_window_start..entries.len() {
+            Self::push_selected_index(&mut selected_indices, &mut seen, idx, entries.len());
+        }
+
+        if selected_indices.len() < MAX_PROMPT_LINES {
+            let stride = (entries.len() / MAX_PROMPT_LINES.max(1)).max(1);
+            let mut idx = 0;
+            while idx < entries.len() && selected_indices.len() < MAX_PROMPT_LINES {
+                Self::push_selected_index(&mut selected_indices, &mut seen, idx, entries.len());
+                idx += stride;
+            }
+        }
+
+        selected_indices.sort_unstable();
+
+        let mut prompt_entries = Vec::new();
+        let mut total_chars = 0;
+
+        for idx in selected_indices {
+            if prompt_entries.len() >= MAX_PROMPT_LINES {
+                break;
+            }
+
+            let line = Self::truncate_line(&entries[idx].line);
+            let next_chars = if prompt_entries.is_empty() {
+                line.len()
+            } else {
+                total_chars + 1 + line.len()
+            };
+
+            if next_chars > MAX_PROMPT_CHARS {
+                break;
+            }
+
+            total_chars = next_chars;
+            prompt_entries.push(line);
+        }
+
+        if prompt_entries.is_empty() {
+            prompt_entries.push(Self::truncate_line(&entries[entries.len() - 1].line));
+        }
+
+        prompt_entries
+    }
+
+    fn is_priority_line(line: &str) -> bool {
+        let lower = line.to_ascii_lowercase();
+        [
+            "error",
+            "warn",
+            "fatal",
+            "panic",
+            "exception",
+            "denied",
+            "unauthorized",
+            "failed",
+            "timeout",
+            "attack",
+            "anomaly",
+        ]
+        .iter()
+        .any(|pattern| lower.contains(pattern))
+    }
+
+    fn truncate_line(line: &str) -> String {
+        let truncated: String = line.chars().take(MAX_LINE_CHARS).collect();
+        if truncated.len() == line.len() {
+            truncated
+        } else {
+            format!("{}...[truncated]", truncated)
+        }
     }
 }
 
@@ -262,10 +389,11 @@ impl LogAnalyzer for OpenAiAnalyzer {
         let source_id = &entries[0].source_id;
 
         log::debug!(
-            "Sending {} entries to AI API (model: {}, url: {})",
+            "Sending {} entries to AI API (model: {}, url: {}, prompt_chars: {})",
             entries.len(),
             self.model,
-            self.api_url
+            self.api_url,
+            prompt.len()
         );
         log::trace!("Prompt:\n{}", prompt);
 
@@ -490,6 +618,58 @@ mod tests {
         assert!(prompt.contains("line 1"));
         assert!(prompt.contains("line 2"));
         assert!(prompt.contains("JSON"));
+    }
+
+    #[test]
+    fn test_build_prompt_limits_included_entries() {
+        let entries: Vec<LogEntry> = (0..250)
+            .map(|i| LogEntry {
+                source_id: "test-source".into(),
+                timestamp: Utc::now(),
+                line: format!("INFO line {}", i),
+                metadata: HashMap::new(),
+            })
+            .collect();
+
+        let prompt = OpenAiAnalyzer::build_prompt(&entries);
+
+        assert!(prompt.contains("- total_entries: 250"));
+        assert!(prompt.contains("- included_entries: 200"));
+        assert!(prompt.contains("Only 200 of 250 entries are included below"));
+        assert!(prompt.contains("INFO line 249"));
+        assert!(!prompt.contains("INFO line 0"));
+    }
+
+    #[test]
+    fn test_select_prompt_entries_preserves_priority_lines() {
+        let mut entries: Vec<LogEntry> = (0..260)
+            .map(|i| LogEntry {
+                source_id: "test-source".into(),
+                timestamp: Utc::now(),
+                line: format!("INFO line {}", i),
+                metadata: HashMap::new(),
+            })
+            .collect();
+        entries[10].line = "ERROR: early failure".into();
+
+        let selected = OpenAiAnalyzer::select_prompt_entries(&entries);
+
+        assert_eq!(selected.len(), 200);
+        assert!(selected
+            .iter()
+            .any(|line| line.contains("ERROR: early failure")));
+    }
+
+    #[test]
+    fn test_select_prompt_entries_truncates_long_lines() {
+        let long_line = "x".repeat(MAX_LINE_CHARS + 50);
+        let entries = make_entries(&[&long_line]);
+
+        let selected = OpenAiAnalyzer::select_prompt_entries(&entries);
+
+        assert_eq!(selected.len(), 1);
+        assert!(selected[0].ends_with("...[truncated]"));
+        assert!(selected[0].len() > MAX_LINE_CHARS);
     }
 
     #[test]
