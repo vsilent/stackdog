@@ -59,7 +59,7 @@ futures-util = "0.3"
 # eBPF (Linux only)
 [target.'cfg(target_os = "linux")'.dependencies]
 aya = "0.12"
-aya-obj = "0.1"
+aya-obj = "0.2"
 
 # Firewall (Linux only)
 netlink-packet-route = "0.17"
