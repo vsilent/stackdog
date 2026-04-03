@@ -18,6 +18,7 @@ extern crate tracing_subscriber;
 
 mod cli;
 
+use actix::Actor;
 use actix_cors::Cors;
 use actix_web::{web, App, HttpServer};
 use clap::Parser;
@@ -80,6 +81,12 @@ async fn main() -> io::Result<()> {
             ai_model,
             ai_api_url,
             slack_webhook,
+            webhook_url,
+            smtp_host,
+            smtp_port,
+            smtp_user,
+            smtp_password,
+            email_recipients,
         }) => {
             let config = sniff::config::SniffConfig::from_env_and_args(sniff::config::SniffArgs {
                 once,
@@ -91,6 +98,12 @@ async fn main() -> io::Result<()> {
                 ai_model: ai_model.as_deref(),
                 ai_api_url: ai_api_url.as_deref(),
                 slack_webhook: slack_webhook.as_deref(),
+                webhook_url: webhook_url.as_deref(),
+                smtp_host: smtp_host.as_deref(),
+                smtp_port,
+                smtp_user: smtp_user.as_deref(),
+                smtp_password: smtp_password.as_deref(),
+                email_recipients: email_recipients.as_deref(),
             });
             run_sniff(config).await
         }
@@ -154,10 +167,17 @@ async fn run_serve() -> io::Result<()> {
     info!("Starting HTTP server on {}...", app_url);
 
     let pool_data = web::Data::new(pool);
+    let websocket_hub = stackdog::api::websocket::WebSocketHub::new().start();
+    stackdog::api::websocket::spawn_stats_broadcaster(
+        websocket_hub.clone(),
+        pool_data.get_ref().clone(),
+    );
+    let websocket_hub_data = web::Data::new(websocket_hub);
 
     HttpServer::new(move || {
         App::new()
             .app_data(pool_data.clone())
+            .app_data(websocket_hub_data.clone())
             .wrap(Cors::permissive())
             .wrap(actix_web::middleware::Logger::default())
             .configure(stackdog::api::configure_all_routes)
@@ -185,6 +205,12 @@ async fn run_sniff(config: sniff::config::SniffConfig) -> io::Result<()> {
     info!("AI API URL: {}", config.ai_api_url);
     if config.slack_webhook.is_some() {
         info!("Slack: configured ✓");
+    }
+    if config.webhook_url.is_some() {
+        info!("Webhook: configured ✓");
+    }
+    if config.smtp_host.is_some() && !config.email_recipients.is_empty() {
+        info!("Email: configured ✓");
     }
 
     let orchestrator = sniff::SniffOrchestrator::new(config).map_err(io::Error::other)?;

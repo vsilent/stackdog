@@ -1,5 +1,6 @@
 //! Alert API response types
 
+use crate::database::models::Alert;
 use serde::{Deserialize, Serialize};
 
 /// Alert response
@@ -39,5 +40,21 @@ impl AlertStatsResponse {
 impl Default for AlertStatsResponse {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<Alert> for AlertResponse {
+    fn from(alert: Alert) -> Self {
+        Self {
+            id: alert.id,
+            alert_type: alert.alert_type.to_string(),
+            severity: alert.severity.to_string(),
+            message: alert.message,
+            status: alert.status.to_string(),
+            timestamp: alert.timestamp,
+            metadata: alert
+                .metadata
+                .and_then(|metadata| serde_json::to_value(metadata).ok()),
+        }
     }
 }

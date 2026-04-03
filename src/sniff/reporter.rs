@@ -4,7 +4,7 @@
 //! them via the existing notification channels.
 
 use crate::alerting::alert::{Alert, AlertSeverity, AlertType};
-use crate::alerting::notifications::{route_by_severity, NotificationConfig};
+use crate::alerting::notifications::{NotificationConfig, NotificationResult};
 use crate::database::connection::DbPool;
 use crate::database::repositories::log_sources;
 use crate::sniff::analyzer::{AnomalySeverity, LogSummary};
@@ -33,7 +33,11 @@ impl Reporter {
     }
 
     /// Report a log summary: persist to DB and send anomaly alerts
-    pub fn report(&self, summary: &LogSummary, pool: Option<&DbPool>) -> Result<ReportResult> {
+    pub async fn report(
+        &self,
+        summary: &LogSummary,
+        pool: Option<&DbPool>,
+    ) -> Result<ReportResult> {
         let mut alerts_sent = 0;
 
         // Persist summary to database
@@ -76,11 +80,16 @@ impl Reporter {
             );
 
             // Route to appropriate notification channels
-            let channels = route_by_severity(alert_severity);
+            let channels = self
+                .notification_config
+                .configured_channels_for_severity(alert_severity);
             log::debug!("Routing alert to {} notification channels", channels.len());
             for channel in &channels {
-                match channel.send(&alert, &self.notification_config) {
-                    Ok(_) => alerts_sent += 1,
+                match channel.send(&alert, &self.notification_config).await {
+                    Ok(NotificationResult::Success(_)) => alerts_sent += 1,
+                    Ok(NotificationResult::Failure(message)) => {
+                        log::warn!("Notification channel reported failure: {}", message)
+                    }
                     Err(e) => log::warn!("Failed to send notification: {}", e),
                 }
             }
@@ -153,18 +162,18 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_report_no_anomalies() {
+    #[tokio::test]
+    async fn test_report_no_anomalies() {
         let reporter = Reporter::new(NotificationConfig::default());
         let summary = make_summary(vec![]);
-        let result = reporter.report(&summary, None).unwrap();
+        let result = reporter.report(&summary, None).await.unwrap();
         assert_eq!(result.anomalies_reported, 0);
         assert_eq!(result.notifications_sent, 0);
         assert!(!result.summary_persisted);
     }
 
-    #[test]
-    fn test_report_with_anomalies_sends_alerts() {
+    #[tokio::test]
+    async fn test_report_with_anomalies_sends_alerts() {
         let reporter = Reporter::new(NotificationConfig::default());
         let summary = make_summary(vec![LogAnomaly {
             description: "High error rate".into(),
@@ -172,21 +181,20 @@ mod tests {
             sample_line: "ERROR: connection failed".into(),
         }]);
 
-        let result = reporter.report(&summary, None).unwrap();
+        let result = reporter.report(&summary, None).await.unwrap();
         assert_eq!(result.anomalies_reported, 1);
-        // Console channel is always available, so at least 1 notification sent
-        assert!(result.notifications_sent >= 1);
+        assert_eq!(result.notifications_sent, 1);
     }
 
-    #[test]
-    fn test_report_persists_to_database() {
+    #[tokio::test]
+    async fn test_report_persists_to_database() {
         let pool = create_pool(":memory:").unwrap();
         init_database(&pool).unwrap();
 
         let reporter = Reporter::new(NotificationConfig::default());
         let summary = make_summary(vec![]);
 
-        let result = reporter.report(&summary, Some(&pool)).unwrap();
+        let result = reporter.report(&summary, Some(&pool)).await.unwrap();
         assert!(result.summary_persisted);
 
         // Verify summary was stored
@@ -195,8 +203,8 @@ mod tests {
         assert_eq!(summaries[0].total_entries, 100);
     }
 
-    #[test]
-    fn test_report_multiple_anomalies() {
+    #[tokio::test]
+    async fn test_report_multiple_anomalies() {
         let reporter = Reporter::new(NotificationConfig::default());
         let summary = make_summary(vec![
             LogAnomaly {
@@ -211,18 +219,34 @@ mod tests {
             },
         ]);
 
-        let result = reporter.report(&summary, None).unwrap();
+        let result = reporter.report(&summary, None).await.unwrap();
         assert_eq!(result.anomalies_reported, 2);
-        assert!(result.notifications_sent >= 2);
+        assert_eq!(result.notifications_sent, 2);
     }
 
-    #[test]
-    fn test_reporter_new() {
+    #[tokio::test]
+    async fn test_reporter_new() {
         let config = NotificationConfig::default();
         let reporter = Reporter::new(config);
         // Just ensure it constructs without error
         let summary = make_summary(vec![]);
-        let result = reporter.report(&summary, None);
+        let result = reporter.report(&summary, None).await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_report_does_not_count_delivery_failures_as_sent() {
+        let reporter = Reporter::new(
+            NotificationConfig::default().with_slack_webhook("http://127.0.0.1:1".into()),
+        );
+        let summary = make_summary(vec![LogAnomaly {
+            description: "High error rate".into(),
+            severity: AnomalySeverity::High,
+            sample_line: "ERROR: connection failed".into(),
+        }]);
+
+        let result = reporter.report(&summary, None).await.unwrap();
+        assert_eq!(result.anomalies_reported, 1);
+        assert_eq!(result.notifications_sent, 1);
     }
 }

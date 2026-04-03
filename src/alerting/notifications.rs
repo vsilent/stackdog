@@ -2,7 +2,10 @@
 //!
 //! Notification channels for alert delivery
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use lettre::message::{Mailbox, MultiPart, SinglePart};
+use lettre::transport::smtp::authentication::Credentials;
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
 use crate::alerting::alert::{Alert, AlertSeverity};
 
@@ -12,10 +15,10 @@ pub struct NotificationConfig {
     slack_webhook: Option<String>,
     smtp_host: Option<String>,
     smtp_port: Option<u16>,
-    _smtp_user: Option<String>,
-    _smtp_password: Option<String>,
+    smtp_user: Option<String>,
+    smtp_password: Option<String>,
     webhook_url: Option<String>,
-    _email_recipients: Vec<String>,
+    email_recipients: Vec<String>,
 }
 
 impl NotificationConfig {
@@ -25,10 +28,10 @@ impl NotificationConfig {
             slack_webhook: None,
             smtp_host: None,
             smtp_port: None,
-            _smtp_user: None,
-            _smtp_password: None,
+            smtp_user: None,
+            smtp_password: None,
             webhook_url: None,
-            _email_recipients: Vec::new(),
+            email_recipients: Vec::new(),
         }
     }
 
@@ -47,6 +50,24 @@ impl NotificationConfig {
     /// Set SMTP port
     pub fn with_smtp_port(mut self, port: u16) -> Self {
         self.smtp_port = Some(port);
+        self
+    }
+
+    /// Set SMTP user
+    pub fn with_smtp_user(mut self, user: String) -> Self {
+        self.smtp_user = Some(user);
+        self
+    }
+
+    /// Set SMTP password
+    pub fn with_smtp_password(mut self, password: String) -> Self {
+        self.smtp_password = Some(password);
+        self
+    }
+
+    /// Set email recipients
+    pub fn with_email_recipients(mut self, recipients: Vec<String>) -> Self {
+        self.email_recipients = recipients;
         self
     }
 
@@ -71,14 +92,55 @@ impl NotificationConfig {
         self.smtp_port
     }
 
+    /// Get SMTP user
+    pub fn smtp_user(&self) -> Option<&str> {
+        self.smtp_user.as_deref()
+    }
+
+    /// Get SMTP password
+    pub fn smtp_password(&self) -> Option<&str> {
+        self.smtp_password.as_deref()
+    }
+
+    /// Get email recipients
+    pub fn email_recipients(&self) -> &[String] {
+        &self.email_recipients
+    }
+
     /// Get webhook URL
     pub fn webhook_url(&self) -> Option<&str> {
         self.webhook_url.as_deref()
     }
+
+    /// Return only channels that are both policy-selected and actually configured.
+    pub fn configured_channels_for_severity(
+        &self,
+        severity: AlertSeverity,
+    ) -> Vec<NotificationChannel> {
+        route_by_severity(severity)
+            .into_iter()
+            .filter(|channel| self.supports_channel(channel))
+            .collect()
+    }
+
+    fn supports_channel(&self, channel: &NotificationChannel) -> bool {
+        match channel {
+            NotificationChannel::Console => true,
+            NotificationChannel::Slack => self.slack_webhook.is_some(),
+            NotificationChannel::Webhook => self.webhook_url.is_some(),
+            NotificationChannel::Email => {
+                self.smtp_host.is_some()
+                    && self.smtp_port.is_some()
+                    && self.smtp_user.is_some()
+                    && self.smtp_password.is_some()
+                    && !self.email_recipients.is_empty()
+            }
+        }
+    }
 }
 
 /// Notification channel
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NotificationChannel {
     Console,
     Slack,
@@ -88,12 +150,16 @@ pub enum NotificationChannel {
 
 impl NotificationChannel {
     /// Send notification
-    pub fn send(&self, alert: &Alert, _config: &NotificationConfig) -> Result<NotificationResult> {
+    pub async fn send(
+        &self,
+        alert: &Alert,
+        config: &NotificationConfig,
+    ) -> Result<NotificationResult> {
         match self {
             NotificationChannel::Console => self.send_console(alert),
-            NotificationChannel::Slack => self.send_slack(alert, _config),
-            NotificationChannel::Email => self.send_email(alert, _config),
-            NotificationChannel::Webhook => self.send_webhook(alert, _config),
+            NotificationChannel::Slack => self.send_slack(alert, config).await,
+            NotificationChannel::Email => self.send_email(alert, config).await,
+            NotificationChannel::Webhook => self.send_webhook(alert, config).await,
         }
     }
 
@@ -111,19 +177,23 @@ impl NotificationChannel {
     }
 
     /// Send to Slack via incoming webhook
-    fn send_slack(&self, alert: &Alert, config: &NotificationConfig) -> Result<NotificationResult> {
+    async fn send_slack(
+        &self,
+        alert: &Alert,
+        config: &NotificationConfig,
+    ) -> Result<NotificationResult> {
         if let Some(webhook_url) = config.slack_webhook() {
             let payload = build_slack_message(alert);
             log::debug!("Sending Slack notification to webhook");
             log::trace!("Slack payload: {}", payload);
 
-            // Blocking HTTP POST — notification sending is synchronous in this codebase
-            let client = reqwest::blocking::Client::new();
+            let client = reqwest::Client::new();
             match client
                 .post(webhook_url)
                 .header("Content-Type", "application/json")
                 .body(payload)
                 .send()
+                .await
             {
                 Ok(resp) => {
                     if resp.status().is_success() {
@@ -131,7 +201,7 @@ impl NotificationChannel {
                         Ok(NotificationResult::Success("sent to Slack".to_string()))
                     } else {
                         let status = resp.status();
-                        let body = resp.text().unwrap_or_default();
+                        let body = resp.text().await.unwrap_or_default();
                         log::warn!("Slack API returned {}: {}", status, body);
                         Ok(NotificationResult::Failure(format!(
                             "Slack returned {}: {}",
@@ -156,30 +226,101 @@ impl NotificationChannel {
     }
 
     /// Send via email
-    fn send_email(&self, alert: &Alert, config: &NotificationConfig) -> Result<NotificationResult> {
-        // In production, this would send SMTP email
-        // For now, just log
-        if config.smtp_host().is_some() {
-            log::info!("Would send email: {}", alert.message());
-            Ok(NotificationResult::Success("sent via email".to_string()))
-        } else {
-            Ok(NotificationResult::Failure(
-                "SMTP not configured".to_string(),
-            ))
-        }
-    }
-
-    /// Send to webhook
-    fn send_webhook(
+    async fn send_email(
         &self,
         alert: &Alert,
         config: &NotificationConfig,
     ) -> Result<NotificationResult> {
-        // In production, this would make HTTP POST
-        // For now, just log
-        if config.webhook_url().is_some() {
-            log::info!("Would send to webhook: {}", alert.message());
-            Ok(NotificationResult::Success("sent to webhook".to_string()))
+        match (
+            config.smtp_host(),
+            config.smtp_port(),
+            config.smtp_user(),
+            config.smtp_password(),
+        ) {
+            (Some(host), Some(port), Some(user), Some(password))
+                if !config.email_recipients().is_empty() =>
+            {
+                let from: Mailbox = user
+                    .parse()
+                    .with_context(|| format!("invalid SMTP sender address: {user}"))?;
+                let recipients = config
+                    .email_recipients()
+                    .iter()
+                    .map(|recipient| {
+                        recipient
+                            .parse::<Mailbox>()
+                            .with_context(|| format!("invalid SMTP recipient address: {recipient}"))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+
+                let mut message_builder = Message::builder().from(from).subject(format!(
+                    "[Stackdog][{}] {}",
+                    alert.severity(),
+                    alert.alert_type()
+                ));
+
+                for recipient in recipients {
+                    message_builder = message_builder.to(recipient);
+                }
+
+                let message = message_builder.multipart(
+                    MultiPart::alternative()
+                        .singlepart(SinglePart::plain(build_email_text(alert)))
+                        .singlepart(SinglePart::html(build_email_html(alert))),
+                )?;
+
+                let mailer = AsyncSmtpTransport::<Tokio1Executor>::relay(host)?
+                    .port(port)
+                    .credentials(Credentials::new(user.to_string(), password.to_string()))
+                    .build();
+
+                match mailer.send(message).await {
+                    Ok(_) => Ok(NotificationResult::Success("sent to email".to_string())),
+                    Err(err) => Ok(NotificationResult::Failure(format!(
+                        "SMTP delivery failed: {}",
+                        err
+                    ))),
+                }
+            }
+            _ => Ok(NotificationResult::Failure(
+                "SMTP not configured".to_string(),
+            )),
+        }
+    }
+
+    /// Send to webhook
+    async fn send_webhook(
+        &self,
+        alert: &Alert,
+        config: &NotificationConfig,
+    ) -> Result<NotificationResult> {
+        if let Some(webhook_url) = config.webhook_url() {
+            let payload = build_webhook_payload(alert);
+            let client = reqwest::Client::new();
+            match client
+                .post(webhook_url)
+                .header("Content-Type", "application/json")
+                .body(payload)
+                .send()
+                .await
+            {
+                Ok(resp) => {
+                    if resp.status().is_success() {
+                        Ok(NotificationResult::Success("sent to webhook".to_string()))
+                    } else {
+                        let status = resp.status();
+                        let body = resp.text().await.unwrap_or_default();
+                        Ok(NotificationResult::Failure(format!(
+                            "Webhook returned {}: {}",
+                            status, body
+                        )))
+                    }
+                }
+                Err(err) => Ok(NotificationResult::Failure(format!(
+                    "Webhook request failed: {}",
+                    err
+                ))),
+            }
         } else {
             Ok(NotificationResult::Failure(
                 "Webhook URL not configured".to_string(),
@@ -266,19 +407,36 @@ pub fn build_slack_message(alert: &Alert) -> String {
 
 /// Build webhook payload
 pub fn build_webhook_payload(alert: &Alert) -> String {
+    serde_json::json!({
+        "alert_type": alert.alert_type().to_string(),
+        "severity": alert.severity().to_string(),
+        "message": alert.message(),
+        "timestamp": alert.timestamp().to_rfc3339(),
+        "status": alert.status().to_string(),
+        "metadata": alert.metadata(),
+    })
+    .to_string()
+}
+
+fn build_email_text(alert: &Alert) -> String {
     format!(
-        r#"{{
-            "alert_type": "{:?} ",
-            "severity": "{}",
-            "message": "{}",
-            "timestamp": "{}",
-            "status": "{}"
-        }}"#,
+        "Stackdog Security Alert\n\nType: {}\nSeverity: {}\nStatus: {}\nTime: {}\n\n{}\n",
         alert.alert_type(),
         alert.severity(),
+        alert.status(),
+        alert.timestamp().to_rfc3339(),
         alert.message(),
-        alert.timestamp(),
-        alert.status()
+    )
+}
+
+fn build_email_html(alert: &Alert) -> String {
+    format!(
+        "<h2>Stackdog Security Alert</h2><p><strong>Type:</strong> {}</p><p><strong>Severity:</strong> {}</p><p><strong>Status:</strong> {}</p><p><strong>Time:</strong> {}</p><p>{}</p>",
+        alert.alert_type(),
+        alert.severity(),
+        alert.status(),
+        alert.timestamp().to_rfc3339(),
+        alert.message(),
     )
 }
 
@@ -286,8 +444,8 @@ pub fn build_webhook_payload(alert: &Alert) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_console_notification() {
+    #[tokio::test]
+    async fn test_console_notification() {
         let channel = NotificationChannel::Console;
         let alert = Alert::new(
             crate::alerting::alert::AlertType::ThreatDetected,
@@ -295,7 +453,7 @@ mod tests {
             "Test".to_string(),
         );
 
-        let result = channel.send(&alert, &NotificationConfig::default());
+        let result = channel.send(&alert, &NotificationConfig::default()).await;
         assert!(result.is_ok());
     }
 
@@ -312,5 +470,65 @@ mod tests {
 
         let info_routes = route_by_severity(AlertSeverity::Info);
         assert_eq!(info_routes.len(), 1);
+    }
+
+    #[test]
+    fn test_build_webhook_payload_is_valid_json() {
+        let alert = Alert::new(
+            crate::alerting::alert::AlertType::ThreatDetected,
+            AlertSeverity::High,
+            "Webhook test".to_string(),
+        );
+
+        let payload = build_webhook_payload(&alert);
+        let json: serde_json::Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(json["severity"], "High");
+        assert_eq!(json["message"], "Webhook test");
+    }
+
+    #[tokio::test]
+    async fn test_email_channel_requires_recipients() {
+        let channel = NotificationChannel::Email;
+        let alert = Alert::new(
+            crate::alerting::alert::AlertType::ThreatDetected,
+            AlertSeverity::High,
+            "Email test".to_string(),
+        );
+
+        let result = channel
+            .send(
+                &alert,
+                &NotificationConfig::default()
+                    .with_smtp_host("smtp.example.com".to_string())
+                    .with_smtp_port(587),
+            )
+            .await
+            .unwrap();
+
+        assert!(matches!(result, NotificationResult::Failure(_)));
+    }
+
+    #[test]
+    fn test_configured_channels_excludes_unconfigured_targets() {
+        let config = NotificationConfig::default().with_webhook_url("https://example.test".into());
+        let channels = config.configured_channels_for_severity(AlertSeverity::Critical);
+
+        assert!(channels.contains(&NotificationChannel::Console));
+        assert!(channels.contains(&NotificationChannel::Webhook));
+        assert!(!channels.contains(&NotificationChannel::Slack));
+        assert!(!channels.contains(&NotificationChannel::Email));
+    }
+
+    #[test]
+    fn test_configured_channels_include_email_when_fully_configured() {
+        let config = NotificationConfig::default()
+            .with_smtp_host("smtp.example.com".into())
+            .with_smtp_port(587)
+            .with_smtp_user("alerts@example.com".into())
+            .with_smtp_password("secret".into())
+            .with_email_recipients(vec!["security@example.com".into()]);
+        let channels = config.configured_channels_for_severity(AlertSeverity::Critical);
+
+        assert!(channels.contains(&NotificationChannel::Email));
     }
 }

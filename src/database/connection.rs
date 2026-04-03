@@ -108,6 +108,12 @@ pub fn init_database(pool: &DbPool) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)",
         [],
     );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_alerts_container_id
+         ON alerts(json_extract(metadata, '$.container_id'))
+         WHERE json_valid(metadata)",
+        [],
+    );
 
     let _ = conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_threats_status ON threats(status)",
@@ -162,6 +168,23 @@ pub fn init_database(pool: &DbPool) -> Result<()> {
     );
     let _ = conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_log_summaries_source ON log_summaries(source_id)",
+        [],
+    );
+
+    // Create baselines table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS baselines (
+            scope TEXT PRIMARY KEY,
+            sample_count INTEGER NOT NULL,
+            mean TEXT NOT NULL,
+            stddev TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
+        [],
+    )?;
+
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_baselines_updated_at ON baselines(updated_at)",
         [],
     );
 

@@ -27,6 +27,17 @@ class ApiService {
     });
   }
 
+  private firstNumber(...values: unknown[]): number | null {
+    return (values.find((value) => typeof value === 'number') as number | undefined) ?? null;
+  }
+
+  private firstString(...values: unknown[]): string | null {
+    return (
+      (values.find((value) => typeof value === 'string' && value.length > 0) as string | undefined) ??
+      null
+    );
+  }
+
   // Security Status
   async getSecurityStatus(): Promise<SecurityStatus> {
     const response = await this.api.get('/security/status');
@@ -77,25 +88,50 @@ class ApiService {
       const securityStatus = item.securityStatus ?? item.security_status ?? {};
       const networkActivity = item.networkActivity ?? item.network_activity ?? {};
 
-      return {
-        id: item.id ?? '',
-        name: item.name ?? item.id ?? 'unknown',
-        image: item.image ?? 'unknown',
-        status: item.status ?? 'Running',
-        securityStatus: {
-          state: securityStatus.state ?? 'Secure',
-          threats: securityStatus.threats ?? 0,
-          vulnerabilities: securityStatus.vulnerabilities ?? 0,
-          lastScan: securityStatus.lastScan ?? new Date().toISOString(),
-        },
-        riskScore: item.riskScore ?? item.risk_score ?? 0,
-        networkActivity: {
-          inboundConnections: networkActivity.inboundConnections ?? networkActivity.inbound_connections ?? 0,
-          outboundConnections: networkActivity.outboundConnections ?? networkActivity.outbound_connections ?? 0,
-          blockedConnections: networkActivity.blockedConnections ?? networkActivity.blocked_connections ?? 0,
-          suspiciousActivity: networkActivity.suspiciousActivity ?? networkActivity.suspicious_activity ?? false,
-        },
-        createdAt: item.createdAt ?? item.created_at ?? new Date().toISOString(),
+        return {
+          id: item.id ?? '',
+          name: item.name ?? item.id ?? 'unknown',
+          image: item.image ?? 'unknown',
+          status: item.status ?? 'Running',
+          securityStatus: {
+            state: securityStatus.state ?? 'Secure',
+            threats: securityStatus.threats ?? 0,
+            vulnerabilities: this.firstNumber(securityStatus.vulnerabilities),
+            lastScan: this.firstString(securityStatus.lastScan, securityStatus.last_scan),
+          },
+          riskScore: item.riskScore ?? item.risk_score ?? 0,
+          networkActivity: {
+            inboundConnections: this.firstNumber(
+              networkActivity.inboundConnections,
+              networkActivity.inbound_connections,
+            ),
+            outboundConnections: this.firstNumber(
+              networkActivity.outboundConnections,
+              networkActivity.outbound_connections,
+            ),
+            blockedConnections: this.firstNumber(
+              networkActivity.blockedConnections,
+              networkActivity.blocked_connections,
+            ),
+            receivedBytes: this.firstNumber(
+              networkActivity.receivedBytes,
+              networkActivity.received_bytes,
+            ),
+            transmittedBytes: this.firstNumber(
+              networkActivity.transmittedBytes,
+              networkActivity.transmitted_bytes,
+            ),
+            receivedPackets: this.firstNumber(
+              networkActivity.receivedPackets,
+              networkActivity.received_packets,
+            ),
+            transmittedPackets: this.firstNumber(
+              networkActivity.transmittedPackets,
+              networkActivity.transmitted_packets,
+            ),
+            suspiciousActivity: networkActivity.suspiciousActivity ?? networkActivity.suspicious_activity ?? false,
+          },
+          createdAt: item.createdAt ?? item.created_at ?? new Date().toISOString(),
       } as Container;
     });
   }

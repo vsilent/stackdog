@@ -1,9 +1,11 @@
 //! Alerts API endpoints
 
+use crate::api::websocket::{broadcast_event, broadcast_stats, WebSocketHubHandle};
 use crate::database::{
     create_sample_alert, get_alert_stats as db_get_alert_stats, list_alerts as db_list_alerts,
     update_alert_status, AlertFilter, DbPool,
 };
+use crate::models::api::alerts::AlertResponse;
 use actix_web::{web, HttpResponse, Responder};
 use serde::Deserialize;
 
@@ -24,7 +26,12 @@ pub async fn get_alerts(pool: web::Data<DbPool>, query: web::Query<AlertQuery>) 
     };
 
     match db_list_alerts(&pool, filter).await {
-        Ok(alerts) => HttpResponse::Ok().json(alerts),
+        Ok(alerts) => HttpResponse::Ok().json(
+            alerts
+                .into_iter()
+                .map(AlertResponse::from)
+                .collect::<Vec<_>>(),
+        ),
         Err(e) => {
             log::error!("Failed to list alerts: {}", e);
             HttpResponse::InternalServerError().json(serde_json::json!({
@@ -61,12 +68,26 @@ pub async fn get_alert_stats(pool: web::Data<DbPool>) -> impl Responder {
 /// Acknowledge an alert
 ///
 /// POST /api/alerts/:id/acknowledge
-pub async fn acknowledge_alert(pool: web::Data<DbPool>, path: web::Path<String>) -> impl Responder {
+pub async fn acknowledge_alert(
+    pool: web::Data<DbPool>,
+    hub: web::Data<WebSocketHubHandle>,
+    path: web::Path<String>,
+) -> impl Responder {
     let alert_id = path.into_inner();
 
     match update_alert_status(&pool, &alert_id, "Acknowledged").await {
         Ok(()) => {
             log::info!("Acknowledged alert: {}", alert_id);
+            broadcast_event(
+                hub.get_ref(),
+                "alert:updated",
+                serde_json::json!({
+                    "id": alert_id,
+                    "status": "Acknowledged"
+                }),
+            )
+            .await;
+            let _ = broadcast_stats(hub.get_ref(), &pool).await;
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
                 "message": format!("Alert {} acknowledged", alert_id)
@@ -91,6 +112,7 @@ pub struct ResolveRequest {
 
 pub async fn resolve_alert(
     pool: web::Data<DbPool>,
+    hub: web::Data<WebSocketHubHandle>,
     path: web::Path<String>,
     body: web::Json<ResolveRequest>,
 ) -> impl Responder {
@@ -100,6 +122,17 @@ pub async fn resolve_alert(
     match update_alert_status(&pool, &alert_id, "Resolved").await {
         Ok(()) => {
             log::info!("Resolved alert {}: {}", alert_id, _note);
+            broadcast_event(
+                hub.get_ref(),
+                "alert:updated",
+                serde_json::json!({
+                    "id": alert_id,
+                    "status": "Resolved",
+                    "note": _note
+                }),
+            )
+            .await;
+            let _ = broadcast_stats(hub.get_ref(), &pool).await;
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
                 "message": format!("Alert {} resolved", alert_id)
@@ -115,16 +148,34 @@ pub async fn resolve_alert(
 }
 
 /// Seed database with sample alerts (for testing)
-pub async fn seed_sample_alerts(pool: web::Data<DbPool>) -> impl Responder {
+pub async fn seed_sample_alerts(
+    pool: web::Data<DbPool>,
+    hub: web::Data<WebSocketHubHandle>,
+) -> impl Responder {
     use crate::database::create_alert;
 
     let mut created = Vec::new();
+    let mut last_alert = None;
 
     for i in 0..5 {
         let alert = create_sample_alert();
         if create_alert(&pool, alert).await.is_ok() {
             created.push(i);
+            last_alert = Some(i);
         }
+    }
+
+    if !created.is_empty() {
+        broadcast_event(
+            hub.get_ref(),
+            "alert:created",
+            serde_json::json!({
+                "created": created.len(),
+                "last_index": last_alert
+            }),
+        )
+        .await;
+        let _ = broadcast_stats(hub.get_ref(), &pool).await;
     }
 
     HttpResponse::Ok().json(serde_json::json!({

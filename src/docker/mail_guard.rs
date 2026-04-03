@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::env;
 
-use chrono::Utc;
 use tokio::time::{sleep, Duration};
-use uuid::Uuid;
 
+use crate::alerting::alert::{AlertSeverity, AlertType};
 use crate::database::models::Alert;
+use crate::database::models::AlertMetadata;
 use crate::database::repositories::alerts::create_alert;
 use crate::database::DbPool;
 use crate::docker::client::{ContainerInfo, ContainerStats};
@@ -328,18 +328,20 @@ impl MailAbuseGuard {
                 detector.mark_quarantined(&container.id);
                 create_alert(
                     pool,
-                    Alert {
-                        id: Uuid::new_v4().to_string(),
-                        alert_type: "ThreatDetected".into(),
-                        severity: "Critical".into(),
-                        message: format!(
+                    Alert::new(
+                        AlertType::ThreatDetected,
+                        AlertSeverity::Critical,
+                        format!(
                             "Mail abuse guard quarantined container {} ({})",
                             container.name, container.id
                         ),
-                        status: "New".into(),
-                        timestamp: Utc::now().to_rfc3339(),
-                        metadata: Some(reason.clone()),
-                    },
+                    )
+                    .with_metadata(
+                        AlertMetadata::default()
+                            .with_container_id(&container.id)
+                            .with_source("mail-abuse-guard")
+                            .with_reason(reason.clone()),
+                    ),
                 )
                 .await?;
                 log::warn!("{}", reason);

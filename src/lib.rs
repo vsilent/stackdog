@@ -71,6 +71,8 @@ pub use events::syscall::{SyscallEvent, SyscallType};
 pub use alerting::{Alert, AlertSeverity, AlertStatus, AlertType};
 pub use alerting::{AlertManager, AlertStats};
 pub use alerting::{NotificationChannel, NotificationConfig};
+#[cfg(target_os = "linux")]
+pub use response::{ActionPipeline, PipelineAction, PipelinePlan};
 
 // Linux-specific
 pub use collectors::{EbpfLoader, SyscallMonitor};

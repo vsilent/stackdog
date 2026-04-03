@@ -40,6 +40,22 @@ impl SniffOrchestrator {
         if let Some(ref url) = config.webhook_url {
             notification_config = notification_config.with_webhook_url(url.clone());
         }
+        if let Some(ref host) = config.smtp_host {
+            notification_config = notification_config.with_smtp_host(host.clone());
+        }
+        if let Some(port) = config.smtp_port {
+            notification_config = notification_config.with_smtp_port(port);
+        }
+        if let Some(ref user) = config.smtp_user {
+            notification_config = notification_config.with_smtp_user(user.clone());
+        }
+        if let Some(ref password) = config.smtp_password {
+            notification_config = notification_config.with_smtp_password(password.clone());
+        }
+        if !config.email_recipients.is_empty() {
+            notification_config =
+                notification_config.with_email_recipients(config.email_recipients.clone());
+        }
         let reporter = Reporter::new(notification_config);
 
         Ok(Self {
@@ -155,7 +171,7 @@ impl SniffOrchestrator {
 
             // 5. Report
             log::debug!("Step 5: reporting results...");
-            let report = self.reporter.report(&summary, Some(&self.pool))?;
+            let report = self.reporter.report(&summary, Some(&self.pool)).await?;
             result.anomalies_found += report.anomalies_reported;
 
             // 6. Consume (if enabled)
@@ -260,6 +276,12 @@ mod tests {
             ai_model: None,
             ai_api_url: None,
             slack_webhook: None,
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
         });
         config.database_url = ":memory:".into();
 
@@ -289,6 +311,12 @@ mod tests {
             ai_model: None,
             ai_api_url: None,
             slack_webhook: None,
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
         });
         config.database_url = ":memory:".into();
 

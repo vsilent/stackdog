@@ -56,6 +56,30 @@ pub enum Command {
         /// Slack webhook URL for alert notifications
         #[arg(long)]
         slack_webhook: Option<String>,
+
+        /// Generic webhook URL for alert notifications
+        #[arg(long)]
+        webhook_url: Option<String>,
+
+        /// SMTP host for email alert notifications
+        #[arg(long)]
+        smtp_host: Option<String>,
+
+        /// SMTP port for email alert notifications
+        #[arg(long)]
+        smtp_port: Option<u16>,
+
+        /// SMTP username / sender address for email alert notifications
+        #[arg(long)]
+        smtp_user: Option<String>,
+
+        /// SMTP password for email alert notifications
+        #[arg(long)]
+        smtp_password: Option<String>,
+
+        /// Comma-separated email recipients for alert notifications
+        #[arg(long)]
+        email_recipients: Option<String>,
     },
 }
 
@@ -93,6 +117,12 @@ mod tests {
                 ai_model,
                 ai_api_url,
                 slack_webhook,
+                webhook_url,
+                smtp_host,
+                smtp_port,
+                smtp_user,
+                smtp_password,
+                email_recipients,
             }) => {
                 assert!(!once);
                 assert!(!consume);
@@ -103,6 +133,12 @@ mod tests {
                 assert!(ai_model.is_none());
                 assert!(ai_api_url.is_none());
                 assert!(slack_webhook.is_none());
+                assert!(webhook_url.is_none());
+                assert!(smtp_host.is_none());
+                assert!(smtp_port.is_none());
+                assert!(smtp_user.is_none());
+                assert!(smtp_password.is_none());
+                assert!(email_recipients.is_none());
             }
             _ => panic!("Expected Sniff command"),
         }
@@ -147,6 +183,18 @@ mod tests {
             "https://api.openai.com/v1",
             "--slack-webhook",
             "https://hooks.slack.com/services/T/B/xxx",
+            "--webhook-url",
+            "https://example.com/hooks/stackdog",
+            "--smtp-host",
+            "smtp.example.com",
+            "--smtp-port",
+            "587",
+            "--smtp-user",
+            "alerts@example.com",
+            "--smtp-password",
+            "secret",
+            "--email-recipients",
+            "soc@example.com,oncall@example.com",
         ]);
         match cli.command {
             Some(Command::Sniff {
@@ -159,6 +207,12 @@ mod tests {
                 ai_model,
                 ai_api_url,
                 slack_webhook,
+                webhook_url,
+                smtp_host,
+                smtp_port,
+                smtp_user,
+                smtp_password,
+                email_recipients,
             }) => {
                 assert!(once);
                 assert!(consume);
@@ -171,6 +225,15 @@ mod tests {
                 assert_eq!(
                     slack_webhook.unwrap(),
                     "https://hooks.slack.com/services/T/B/xxx"
+                );
+                assert_eq!(webhook_url.unwrap(), "https://example.com/hooks/stackdog");
+                assert_eq!(smtp_host.unwrap(), "smtp.example.com");
+                assert_eq!(smtp_port.unwrap(), 587);
+                assert_eq!(smtp_user.unwrap(), "alerts@example.com");
+                assert_eq!(smtp_password.unwrap(), "secret");
+                assert_eq!(
+                    email_recipients.unwrap(),
+                    "soc@example.com,oncall@example.com"
                 );
             }
             _ => panic!("Expected Sniff command"),

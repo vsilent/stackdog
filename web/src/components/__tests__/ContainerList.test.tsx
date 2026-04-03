@@ -15,14 +15,18 @@ const mockContainers = [
     securityStatus: {
       state: 'Secure' as const,
       threats: 0,
-      vulnerabilities: 0,
-      lastScan: new Date().toISOString(),
+      vulnerabilities: null,
+      lastScan: null,
     },
     riskScore: 10,
     networkActivity: {
-      inboundConnections: 5,
-      outboundConnections: 3,
-      blockedConnections: 0,
+      inboundConnections: null,
+      outboundConnections: null,
+      blockedConnections: null,
+      receivedBytes: 1024,
+      transmittedBytes: 2048,
+      receivedPackets: 5,
+      transmittedPackets: 3,
       suspiciousActivity: false,
     },
     createdAt: new Date().toISOString(),
@@ -35,14 +39,18 @@ const mockContainers = [
     securityStatus: {
       state: 'AtRisk' as const,
       threats: 2,
-      vulnerabilities: 1,
-      lastScan: new Date().toISOString(),
+      vulnerabilities: null,
+      lastScan: null,
     },
     riskScore: 65,
     networkActivity: {
-      inboundConnections: 10,
-      outboundConnections: 5,
-      blockedConnections: 2,
+      inboundConnections: null,
+      outboundConnections: null,
+      blockedConnections: null,
+      receivedBytes: 4096,
+      transmittedBytes: 8192,
+      receivedPackets: 10,
+      transmittedPackets: 5,
       suspiciousActivity: true,
     },
     createdAt: new Date().toISOString(),
@@ -158,8 +166,8 @@ describe('ContainerList Component', () => {
     });
 
     // Should show network activity details
-    expect(screen.getByText('10')).toBeInTheDocument(); // Inbound
-    expect(screen.getByText('5')).toBeInTheDocument(); // Outbound
-    expect(screen.getByText('2')).toBeInTheDocument(); // Blocked
+    expect(screen.getByText(/10 pkts/)).toBeInTheDocument();
+    expect(screen.getAllByText(/5 pkts/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/n\/a/).length).toBeGreaterThan(0);
   });
 });

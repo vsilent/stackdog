@@ -16,14 +16,18 @@ export type ContainerStatus = 'Running' | 'Stopped' | 'Paused' | 'Quarantined';
 export interface SecurityStatus {
   state: 'Secure' | 'AtRisk' | 'Compromised' | 'Quarantined';
   threats: number;
-  vulnerabilities: number;
-  lastScan: string;
+  vulnerabilities: number | null;
+  lastScan: string | null;
 }
 
 export interface NetworkActivity {
-  inboundConnections: number;
-  outboundConnections: number;
-  blockedConnections: number;
+  inboundConnections: number | null;
+  outboundConnections: number | null;
+  blockedConnections: number | null;
+  receivedBytes: number | null;
+  transmittedBytes: number | null;
+  receivedPackets: number | null;
+  transmittedPackets: number | null;
   suspiciousActivity: boolean;
 }
 
