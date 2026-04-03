@@ -30,6 +30,14 @@ impl ContainerManager {
         self.docker.get_container_info(container_id).await
     }
 
+    /// Get live container stats
+    pub async fn get_container_stats(
+        &self,
+        container_id: &str,
+    ) -> Result<crate::docker::client::ContainerStats> {
+        self.docker.get_container_stats(container_id).await
+    }
+
     /// Quarantine a container
     pub async fn quarantine_container(&self, container_id: &str, reason: &str) -> Result<()> {
         // Disconnect from networks

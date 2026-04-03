@@ -4,9 +4,10 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 
 // Bollard imports
-use bollard::container::{InspectContainerOptions, ListContainersOptions};
+use bollard::container::{InspectContainerOptions, ListContainersOptions, Stats, StatsOptions};
 use bollard::network::{DisconnectNetworkOptions, ListNetworksOptions};
 use bollard::Docker;
+use futures_util::stream::StreamExt;
 
 /// Docker client wrapper
 pub struct DockerClient {
@@ -135,16 +136,68 @@ impl DockerClient {
     }
 
     /// Get container stats
-    pub async fn get_container_stats(&self, _container_id: &str) -> Result<ContainerStats> {
-        // Implementation would use Docker stats API
-        // For now, return placeholder
+    pub async fn get_container_stats(&self, container_id: &str) -> Result<ContainerStats> {
+        let mut stream = self.client.stats(
+            container_id,
+            Some(StatsOptions {
+                stream: false,
+                one_shot: true,
+            }),
+        );
+        let stats = stream
+            .next()
+            .await
+            .context("No stats returned from Docker")?
+            .context("Failed to fetch Docker stats")?;
+
+        let (network_rx, network_tx, network_rx_packets, network_tx_packets) =
+            aggregate_network_stats(&stats);
+
         Ok(ContainerStats {
-            cpu_percent: 0.0,
-            memory_usage: 0,
-            memory_limit: 0,
-            network_rx: 0,
-            network_tx: 0,
+            cpu_percent: calculate_cpu_percent(&stats),
+            memory_usage: stats.memory_stats.usage.unwrap_or(0),
+            memory_limit: stats.memory_stats.limit.unwrap_or(0),
+            network_rx,
+            network_tx,
+            network_rx_packets,
+            network_tx_packets,
         })
+    }
+}
+
+fn aggregate_network_stats(stats: &Stats) -> (u64, u64, u64, u64) {
+    if let Some(networks) = stats.networks.as_ref() {
+        networks.values().fold((0, 0, 0, 0), |acc, network| {
+            (
+                acc.0 + network.rx_bytes,
+                acc.1 + network.tx_bytes,
+                acc.2 + network.rx_packets,
+                acc.3 + network.tx_packets,
+            )
+        })
+    } else if let Some(network) = stats.network {
+        (
+            network.rx_bytes,
+            network.tx_bytes,
+            network.rx_packets,
+            network.tx_packets,
+        )
+    } else {
+        (0, 0, 0, 0)
+    }
+}
+
+fn calculate_cpu_percent(stats: &Stats) -> f64 {
+    let cpu_delta = stats.cpu_stats.cpu_usage.total_usage as f64
+        - stats.precpu_stats.cpu_usage.total_usage as f64;
+    let system_delta = stats.cpu_stats.system_cpu_usage.unwrap_or(0) as f64
+        - stats.precpu_stats.system_cpu_usage.unwrap_or(0) as f64;
+    let online_cpus = stats.cpu_stats.online_cpus.unwrap_or(1) as f64;
+
+    if cpu_delta <= 0.0 || system_delta <= 0.0 {
+        0.0
+    } else {
+        (cpu_delta / system_delta) * online_cpus * 100.0
     }
 }
 
@@ -167,6 +220,8 @@ pub struct ContainerStats {
     pub memory_limit: u64,
     pub network_rx: u64,
     pub network_tx: u64,
+    pub network_rx_packets: u64,
+    pub network_tx_packets: u64,
 }
 
 #[cfg(test)]

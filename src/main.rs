@@ -121,6 +121,16 @@ async fn run_serve() -> io::Result<()> {
     init_database(&pool).expect("Failed to initialize database");
     info!("Database initialized successfully");
 
+    let mail_guard_config = stackdog::docker::MailAbuseGuardConfig::from_env();
+    if mail_guard_config.enabled {
+        let guard_pool = pool.clone();
+        actix_rt::spawn(async move {
+            stackdog::docker::MailAbuseGuard::run(guard_pool, mail_guard_config).await;
+        });
+    } else {
+        info!("Mail abuse guard disabled");
+    }
+
     info!("🎉 Stackdog Security ready!");
     info!("");
     info!("API Endpoints:");

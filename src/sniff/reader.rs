@@ -76,10 +76,11 @@ impl FileLogReader {
         reader.seek(SeekFrom::Start(self.offset))?;
 
         let mut entries = Vec::new();
-        let mut line = String::new();
+        let mut line = Vec::new();
 
-        while reader.read_line(&mut line)? > 0 {
-            let trimmed = line.trim_end().to_string();
+        while reader.read_until(b'\n', &mut line)? > 0 {
+            let decoded = String::from_utf8_lossy(&line);
+            let trimmed = decoded.trim_end().to_string();
             if !trimmed.is_empty() {
                 entries.push(LogEntry {
                     source_id: self.source_id.clone(),
@@ -348,6 +349,21 @@ mod tests {
         let entries = reader.read_new_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].line, "line C");
+    }
+
+    #[tokio::test]
+    async fn test_file_log_reader_handles_invalid_utf8() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("invalid-utf8.log");
+        std::fs::write(&path, b"ok line\nbad byte \xff\n").unwrap();
+
+        let mut reader = FileLogReader::new("utf8".into(), path.to_string_lossy().to_string(), 0);
+        let entries = reader.read_new_entries().await.unwrap();
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].line, "ok line");
+        assert!(entries[1].line.contains("bad byte"));
+        assert!(entries[1].line.contains('\u{fffd}'));
     }
 
     #[tokio::test]
