@@ -69,6 +69,73 @@ pub struct NfTablesBackend {
 }
 
 impl NfTablesBackend {
+    fn run_nft(&self, args: &[&str], context: &str) -> Result<()> {
+        let output = Command::new("nft").args(args).output().context(context)?;
+
+        if !output.status.success() {
+            anyhow::bail!("{}", String::from_utf8_lossy(&output.stderr).trim());
+        }
+
+        Ok(())
+    }
+
+    fn base_table(&self) -> NfTable {
+        NfTable::new("inet", "stackdog")
+    }
+
+    fn ensure_filter_table(&self) -> Result<()> {
+        let table = self.base_table();
+        let _ = self.run_nft(
+            &["add", "table", &table.family, &table.name],
+            "Failed to ensure nftables table",
+        );
+        let _ = self.run_nft(
+            &[
+                "add",
+                "chain",
+                &table.family,
+                &table.name,
+                "input",
+                "{",
+                "type",
+                "filter",
+                "hook",
+                "input",
+                "priority",
+                "0",
+                ";",
+                "policy",
+                "accept",
+                ";",
+                "}",
+            ],
+            "Failed to ensure nftables input chain",
+        );
+        let _ = self.run_nft(
+            &[
+                "add",
+                "chain",
+                &table.family,
+                &table.name,
+                "output",
+                "{",
+                "type",
+                "filter",
+                "hook",
+                "output",
+                "priority",
+                "0",
+                ";",
+                "policy",
+                "accept",
+                ";",
+                "}",
+            ],
+            "Failed to ensure nftables output chain",
+        );
+        Ok(())
+    }
+
     /// Create a new nftables backend
     pub fn new() -> Result<Self> {
         #[cfg(target_os = "linux")]
@@ -274,34 +341,59 @@ impl FirewallBackend for NfTablesBackend {
     }
 
     fn block_ip(&self, ip: &str) -> Result<()> {
-        // Implementation would add nftables rule to block IP
-        log::info!("Would block IP: {}", ip);
-        Ok(())
+        self.ensure_filter_table()?;
+        self.run_nft(
+            &[
+                "add", "rule", "inet", "stackdog", "input", "ip", "saddr", ip, "drop",
+            ],
+            "Failed to block IP with nftables",
+        )
     }
 
     fn unblock_ip(&self, ip: &str) -> Result<()> {
-        log::info!("Would unblock IP: {}", ip);
-        Ok(())
+        self.ensure_filter_table()?;
+        self.run_nft(
+            &[
+                "delete", "rule", "inet", "stackdog", "input", "ip", "saddr", ip, "drop",
+            ],
+            "Failed to unblock IP with nftables",
+        )
     }
 
     fn block_port(&self, port: u16) -> Result<()> {
-        log::info!("Would block port: {}", port);
-        Ok(())
+        self.ensure_filter_table()?;
+        let port = port.to_string();
+        self.run_nft(
+            &[
+                "add", "rule", "inet", "stackdog", "output", "tcp", "dport", &port, "drop",
+            ],
+            "Failed to block port with nftables",
+        )
     }
 
     fn unblock_port(&self, port: u16) -> Result<()> {
-        log::info!("Would unblock port: {}", port);
-        Ok(())
+        self.ensure_filter_table()?;
+        let port = port.to_string();
+        self.run_nft(
+            &[
+                "delete", "rule", "inet", "stackdog", "output", "tcp", "dport", &port, "drop",
+            ],
+            "Failed to unblock port with nftables",
+        )
     }
 
     fn block_container(&self, container_id: &str) -> Result<()> {
-        log::info!("Would block container: {}", container_id);
-        Ok(())
+        anyhow::bail!(
+            "Container-specific nftables blocking is not implemented yet for {}",
+            container_id
+        )
     }
 
     fn unblock_container(&self, container_id: &str) -> Result<()> {
-        log::info!("Would unblock container: {}", container_id);
-        Ok(())
+        anyhow::bail!(
+            "Container-specific nftables unblocking is not implemented yet for {}",
+            container_id
+        )
     }
 
     fn name(&self) -> &str {
@@ -326,5 +418,12 @@ mod tests {
         let chain = NfChain::new(&table, "input", "filter");
         assert_eq!(chain.name, "input");
         assert_eq!(chain.chain_type, "filter");
+    }
+
+    #[test]
+    fn test_block_container_is_explicitly_unsupported() {
+        let backend = NfTablesBackend { available: true };
+        let result = backend.block_container("container-1");
+        assert!(result.is_err());
     }
 }
