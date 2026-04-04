@@ -139,6 +139,18 @@ fn test_response_from_alert() {
 }
 
 #[test]
+fn test_quarantine_response_is_explicitly_unsupported_in_sync_pipeline() {
+    let action = ResponseAction::new(
+        ResponseType::QuarantineContainer("test-container".to_string()),
+        "Quarantine container".to_string(),
+    );
+
+    let error = action.execute().unwrap_err().to_string();
+    assert!(error.contains("Docker-based container quarantine flow"));
+    assert!(error.contains("test-container"));
+}
+
+#[test]
 fn test_response_retry() {
     let mut action = ResponseAction::new(
         ResponseType::LogAction("Test".to_string()),

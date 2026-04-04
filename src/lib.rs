@@ -51,6 +51,7 @@ pub mod baselines;
 pub mod correlator;
 pub mod database;
 pub mod docker;
+pub mod ip_ban;
 pub mod ml;
 pub mod response;
 

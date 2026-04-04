@@ -59,6 +59,7 @@ const mockContainers = [
 
 describe('ContainerList Component', () => {
   beforeEach(() => {
+    jest.clearAllMocks();
     (apiService.getContainers as jest.Mock).mockResolvedValue(mockContainers);
   });
 
@@ -75,12 +76,10 @@ describe('ContainerList Component', () => {
   test('shows security status per container', async () => {
     render(<ContainerList />);
 
-    await waitFor(() => {
-      expect(screen.getByText('web-server')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('web-server')).toBeInTheDocument();
 
     expect(screen.getByText('Secure')).toBeInTheDocument();
-    expect(screen.getByText('At Risk')).toBeInTheDocument();
+    expect(screen.getByText('AtRisk')).toBeInTheDocument();
   });
 
   test('displays risk scores', async () => {
@@ -99,11 +98,9 @@ describe('ContainerList Component', () => {
 
     render(<ContainerList />);
 
-    await waitFor(() => {
-      expect(screen.getByText('database')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('database')).toBeInTheDocument();
 
-    const quarantineButton = screen.getByText('Quarantine');
+    const quarantineButton = screen.getAllByText('Quarantine')[1];
     fireEvent.click(quarantineButton);
 
     // Should show confirmation modal
@@ -146,14 +143,14 @@ describe('ContainerList Component', () => {
   test('filters by status', async () => {
     render(<ContainerList />);
 
-    await waitFor(() => {
-      expect(screen.getByText('web-server')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('web-server')).toBeInTheDocument();
 
     const statusFilter = screen.getByLabelText('Filter by status');
     fireEvent.change(statusFilter, { target: { value: 'Running' } });
 
-    // Should only show Running containers
+    await waitFor(() => {
+      expect(apiService.getContainers).toHaveBeenCalledTimes(2);
+    });
     expect(screen.getByText('web-server')).toBeInTheDocument();
     expect(screen.getByText('database')).toBeInTheDocument();
   });

@@ -38,10 +38,52 @@ class ApiService {
     );
   }
 
+  private normalizeSecurityStatus(payload: Record<string, unknown>): SecurityStatus {
+    return {
+      overallScore: (payload.overallScore ?? payload.overall_score ?? 0) as number,
+      activeThreats: (payload.activeThreats ?? payload.active_threats ?? 0) as number,
+      quarantinedContainers: (payload.quarantinedContainers ?? payload.quarantined_containers ?? 0) as number,
+      alertsNew: (payload.alertsNew ?? payload.alerts_new ?? 0) as number,
+      alertsAcknowledged: (payload.alertsAcknowledged ?? payload.alerts_acknowledged ?? 0) as number,
+      lastUpdated: (payload.lastUpdated ?? payload.last_updated ?? new Date().toISOString()) as string,
+    };
+  }
+
+  private normalizeThreatStatistics(payload: Record<string, unknown>): ThreatStatistics {
+    return {
+      totalThreats: (payload.totalThreats ?? payload.total_threats ?? 0) as number,
+      bySeverity: (payload.bySeverity ?? payload.by_severity ?? {}) as ThreatStatistics['bySeverity'],
+      byType: (payload.byType ?? payload.by_type ?? {}) as Record<string, number>,
+      trend: (payload.trend ?? 'stable') as ThreatStatistics['trend'],
+    };
+  }
+
+  private normalizeAlert(payload: Record<string, unknown>): Alert {
+    return {
+      id: (payload.id ?? '') as string,
+      alertType: (payload.alertType ?? payload.alert_type ?? 'SystemEvent') as Alert['alertType'],
+      severity: (payload.severity ?? 'Info') as Alert['severity'],
+      message: (payload.message ?? '') as string,
+      status: (payload.status ?? 'New') as Alert['status'],
+      timestamp: (payload.timestamp ?? new Date().toISOString()) as string,
+      metadata: payload.metadata as Record<string, string> | undefined,
+    };
+  }
+
+  private normalizeAlertStats(payload: Record<string, unknown>): AlertStats {
+    return {
+      totalCount: (payload.totalCount ?? payload.total_count ?? 0) as number,
+      newCount: (payload.newCount ?? payload.new_count ?? 0) as number,
+      acknowledgedCount: (payload.acknowledgedCount ?? payload.acknowledged_count ?? 0) as number,
+      resolvedCount: (payload.resolvedCount ?? payload.resolved_count ?? 0) as number,
+      falsePositiveCount: (payload.falsePositiveCount ?? payload.false_positive_count ?? 0) as number,
+    };
+  }
+
   // Security Status
   async getSecurityStatus(): Promise<SecurityStatus> {
     const response = await this.api.get('/security/status');
-    return response.data;
+    return this.normalizeSecurityStatus(response.data as Record<string, unknown>);
   }
 
   async getThreats(): Promise<Threat[]> {
@@ -51,7 +93,7 @@ class ApiService {
 
   async getThreatStatistics(): Promise<ThreatStatistics> {
     const response = await this.api.get('/threats/statistics');
-    return response.data;
+    return this.normalizeThreatStatistics(response.data as Record<string, unknown>);
   }
 
   // Alerts
@@ -64,12 +106,12 @@ class ApiService {
       filter.status.forEach(s => params.append('status', s));
     }
     const response = await this.api.get('/alerts', { params });
-    return response.data;
+    return (response.data as Array<Record<string, unknown>>).map((alert) => this.normalizeAlert(alert));
   }
 
   async getAlertStats(): Promise<AlertStats> {
     const response = await this.api.get('/alerts/stats');
-    return response.data;
+    return this.normalizeAlertStats(response.data as Record<string, unknown>);
   }
 
   async acknowledgeAlert(alertId: string): Promise<void> {

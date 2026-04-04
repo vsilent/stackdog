@@ -50,7 +50,8 @@ pub async fn get_alert_stats(pool: web::Data<DbPool>) -> impl Responder {
             "total_count": stats.total_count,
             "new_count": stats.new_count,
             "acknowledged_count": stats.acknowledged_count,
-            "resolved_count": stats.resolved_count
+            "resolved_count": stats.resolved_count,
+            "false_positive_count": stats.false_positive_count
         })),
         Err(e) => {
             log::error!("Failed to get alert stats: {}", e);
@@ -59,7 +60,8 @@ pub async fn get_alert_stats(pool: web::Data<DbPool>) -> impl Responder {
                 "total_count": 0,
                 "new_count": 0,
                 "acknowledged_count": 0,
-                "resolved_count": 0
+                "resolved_count": 0,
+                "false_positive_count": 0
             }))
         }
     }

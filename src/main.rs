@@ -144,6 +144,25 @@ async fn run_serve() -> io::Result<()> {
         info!("Mail abuse guard disabled");
     }
 
+    let ip_ban_config = stackdog::ip_ban::IpBanConfig::from_env();
+    if ip_ban_config.enabled {
+        let ip_ban_pool = pool.clone();
+        actix_rt::spawn(async move {
+            let engine = stackdog::ip_ban::IpBanEngine::new(ip_ban_pool, ip_ban_config);
+            loop {
+                if let Err(err) = engine.unban_expired().await {
+                    log::warn!("IP ban unban pass failed: {}", err);
+                }
+                tokio::time::sleep(tokio::time::Duration::from_secs(
+                    engine.config().unban_check_interval_secs,
+                ))
+                .await;
+            }
+        });
+    } else {
+        info!("IP ban backend disabled");
+    }
+
     info!("🎉 Stackdog Security ready!");
     info!("");
     info!("API Endpoints:");

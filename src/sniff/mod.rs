@@ -13,6 +13,7 @@ pub mod reporter;
 use crate::alerting::notifications::NotificationConfig;
 use crate::database::connection::{create_pool, init_database, DbPool};
 use crate::database::repositories::log_sources as log_sources_repo;
+use crate::ip_ban::{IpBanConfig, IpBanEngine, OffenseInput};
 use crate::sniff::analyzer::{LogAnalyzer, PatternAnalyzer};
 use crate::sniff::config::SniffConfig;
 use crate::sniff::consumer::LogConsumer;
@@ -26,6 +27,7 @@ pub struct SniffOrchestrator {
     config: SniffConfig,
     pool: DbPool,
     reporter: Reporter,
+    ip_ban: Option<IpBanEngine>,
 }
 
 impl SniffOrchestrator {
@@ -57,11 +59,16 @@ impl SniffOrchestrator {
                 notification_config.with_email_recipients(config.email_recipients.clone());
         }
         let reporter = Reporter::new(notification_config);
+        let ip_ban_config = IpBanConfig::from_env();
+        let ip_ban = ip_ban_config
+            .enabled
+            .then(|| IpBanEngine::new(pool.clone(), ip_ban_config));
 
         Ok(Self {
             config,
             pool,
             reporter,
+            ip_ban,
         })
     }
 
@@ -173,6 +180,9 @@ impl SniffOrchestrator {
             log::debug!("Step 5: reporting results...");
             let report = self.reporter.report(&summary, Some(&self.pool)).await?;
             result.anomalies_found += report.anomalies_reported;
+            if let Some(engine) = &self.ip_ban {
+                self.apply_ip_ban(&summary, engine).await?;
+            }
 
             // 6. Consume (if enabled)
             if let Some(ref mut cons) = consumer {
@@ -207,6 +217,37 @@ impl SniffOrchestrator {
         }
 
         Ok(result)
+    }
+
+    async fn apply_ip_ban(
+        &self,
+        summary: &analyzer::LogSummary,
+        engine: &IpBanEngine,
+    ) -> Result<()> {
+        for anomaly in &summary.anomalies {
+            let severity = match anomaly.severity {
+                analyzer::AnomalySeverity::Low => crate::alerting::AlertSeverity::Low,
+                analyzer::AnomalySeverity::Medium => crate::alerting::AlertSeverity::Medium,
+                analyzer::AnomalySeverity::High => crate::alerting::AlertSeverity::High,
+                analyzer::AnomalySeverity::Critical => crate::alerting::AlertSeverity::Critical,
+            };
+
+            for ip in IpBanEngine::extract_ip_candidates(&anomaly.sample_line) {
+                engine
+                    .record_offense(OffenseInput {
+                        ip_address: ip,
+                        source_type: "sniff".into(),
+                        reason: anomaly.description.clone(),
+                        severity,
+                        container_id: None,
+                        source_path: None,
+                        sample_line: Some(anomaly.sample_line.clone()),
+                    })
+                    .await?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Run the sniff loop (continuous or one-shot)
@@ -254,6 +295,51 @@ pub struct SniffPassResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::repositories::offenses::{active_block_for_ip, find_recent_offenses};
+    use crate::database::{list_alerts, AlertFilter};
+    use crate::ip_ban::{IpBanConfig, IpBanEngine};
+    use crate::sniff::analyzer::{AnomalySeverity, LogAnomaly, LogSummary};
+    use chrono::Utc;
+
+    fn memory_sniff_config() -> SniffConfig {
+        let mut config = SniffConfig::from_env_and_args(config::SniffArgs {
+            once: true,
+            consume: false,
+            output: "./stackdog-logs/",
+            sources: None,
+            interval: 30,
+            ai_provider: None,
+            ai_model: None,
+            ai_api_url: None,
+            slack_webhook: None,
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
+        });
+        config.database_url = ":memory:".into();
+        config
+    }
+
+    fn make_summary(sample_line: &str, severity: analyzer::AnomalySeverity) -> LogSummary {
+        LogSummary {
+            source_id: "test-source".into(),
+            period_start: Utc::now(),
+            period_end: Utc::now(),
+            total_entries: 1,
+            summary_text: "Suspicious login activity".into(),
+            error_count: 1,
+            warning_count: 0,
+            key_events: vec!["Failed password attempts".into()],
+            anomalies: vec![LogAnomaly {
+                description: "Repeated failed ssh login".into(),
+                severity,
+                sample_line: sample_line.into(),
+            }],
+        }
+    }
 
     #[test]
     fn test_sniff_pass_result_default() {
@@ -325,5 +411,96 @@ mod tests {
 
         assert!(result.sources_found >= 1);
         assert!(result.total_entries >= 3);
+    }
+
+    #[actix_rt::test]
+    async fn test_apply_ip_ban_records_offense_metadata_from_anomaly() {
+        let orchestrator = SniffOrchestrator::new(memory_sniff_config()).unwrap();
+        let engine = IpBanEngine::new(
+            orchestrator.pool.clone(),
+            IpBanConfig {
+                enabled: true,
+                max_retries: 2,
+                find_time_secs: 300,
+                ban_time_secs: 60,
+                unban_check_interval_secs: 60,
+            },
+        );
+        let summary = make_summary(
+            "Failed password for root from 192.0.2.80 port 2222 ssh2",
+            AnomalySeverity::High,
+        );
+
+        orchestrator.apply_ip_ban(&summary, &engine).await.unwrap();
+
+        let offenses = find_recent_offenses(
+            &orchestrator.pool,
+            "192.0.2.80",
+            "sniff",
+            Utc::now() - chrono::Duration::minutes(5),
+        )
+        .unwrap();
+        assert_eq!(offenses.len(), 1);
+        assert_eq!(offenses[0].reason, "Repeated failed ssh login");
+        assert_eq!(
+            offenses[0]
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.sample_line.as_deref()),
+            Some("Failed password for root from 192.0.2.80 port 2222 ssh2")
+        );
+        assert!(active_block_for_ip(&orchestrator.pool, "192.0.2.80")
+            .unwrap()
+            .is_none());
+    }
+
+    #[actix_rt::test]
+    async fn test_apply_ip_ban_blocks_and_emits_alert_after_repeated_anomalies() {
+        let orchestrator = SniffOrchestrator::new(memory_sniff_config()).unwrap();
+        let engine = IpBanEngine::new(
+            orchestrator.pool.clone(),
+            IpBanConfig {
+                enabled: true,
+                max_retries: 2,
+                find_time_secs: 300,
+                ban_time_secs: 60,
+                unban_check_interval_secs: 60,
+            },
+        );
+        let summary = make_summary(
+            "Failed password for root from 192.0.2.81 port 3333 ssh2",
+            AnomalySeverity::Critical,
+        );
+
+        orchestrator.apply_ip_ban(&summary, &engine).await.unwrap();
+        orchestrator.apply_ip_ban(&summary, &engine).await.unwrap();
+
+        assert!(active_block_for_ip(&orchestrator.pool, "192.0.2.81")
+            .unwrap()
+            .is_some());
+
+        let alerts = list_alerts(&orchestrator.pool, AlertFilter::default())
+            .await
+            .unwrap();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].alert_type.to_string(), "ThresholdExceeded");
+        assert_eq!(
+            alerts[0].message,
+            "Blocked IP 192.0.2.81 after repeated sniff offenses"
+        );
+        assert_eq!(
+            alerts[0]
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.source.as_deref()),
+            Some("ip_ban")
+        );
+        assert_eq!(
+            alerts[0]
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.reason.as_deref()),
+            Some("Repeated failed ssh login")
+        );
     }
 }

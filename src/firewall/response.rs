@@ -403,14 +403,15 @@ mod tests {
     }
 
     #[test]
-    fn test_quarantine_action_returns_error_when_container_blocking_missing() {
+    fn test_quarantine_action_returns_actionable_error() {
         let action = ResponseAction::new(
             ResponseType::QuarantineContainer("container-1".to_string()),
             "Quarantine".to_string(),
         );
 
-        let result = action.execute();
-        assert!(result.is_err());
+        let error = action.execute().unwrap_err().to_string();
+        assert!(error.contains("Docker-based container quarantine flow"));
+        assert!(error.contains("container-1"));
     }
 
     #[test]
@@ -476,5 +477,9 @@ mod tests {
         assert_eq!(log.len(), 1);
         assert!(!log[0].success());
         assert!(log[0].error().is_some());
+        assert!(log[0]
+            .error()
+            .unwrap()
+            .contains("Docker-based container quarantine flow"));
     }
 }

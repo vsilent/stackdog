@@ -21,6 +21,7 @@ pub struct AlertStats {
     pub new_count: i64,
     pub acknowledged_count: i64,
     pub resolved_count: i64,
+    pub false_positive_count: i64,
 }
 
 /// Severity breakdown for open security alerts.
@@ -263,12 +264,18 @@ pub async fn get_alert_stats(pool: &DbPool) -> Result<AlertStats> {
         [],
         |row| row.get(0),
     )?;
+    let false_positive: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM alerts WHERE status = 'FalsePositive'",
+        [],
+        |row| row.get(0),
+    )?;
 
     Ok(AlertStats {
         total_count: total,
         new_count: new,
         acknowledged_count: ack,
         resolved_count: resolved,
+        false_positive_count: false_positive,
     })
 }
 
