@@ -70,7 +70,10 @@ pub struct NfTablesBackend {
 
 impl NfTablesBackend {
     fn run_nft(&self, args: &[&str], context: &str) -> Result<()> {
-        let output = Command::new("nft").args(args).output().context(context)?;
+        let output = Command::new("nft")
+            .args(args)
+            .output()
+            .context(context.to_string())?;
 
         if !output.status.success() {
             anyhow::bail!("{}", String::from_utf8_lossy(&output.stderr).trim());

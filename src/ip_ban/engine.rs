@@ -10,6 +10,9 @@ use anyhow::Result;
 use chrono::{Duration, Utc};
 use uuid::Uuid;
 
+#[cfg(target_os = "linux")]
+use crate::firewall::backend::FirewallBackend;
+
 #[derive(Debug, Clone)]
 pub struct OffenseInput {
     pub ip_address: String,

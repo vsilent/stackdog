@@ -49,7 +49,7 @@ impl IptablesBackend {
         let output = Command::new("iptables")
             .args(args)
             .output()
-            .context(context)?;
+            .context(context.to_string())?;
 
         if !output.status.success() {
             anyhow::bail!("{}", String::from_utf8_lossy(&output.stderr).trim());
