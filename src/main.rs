@@ -71,39 +71,23 @@ async fn main() -> io::Result<()> {
     info!("Architecture: {}", std::env::consts::ARCH);
 
     match cli.command {
-        Some(Command::Sniff {
-            once,
-            consume,
-            output,
-            sources,
-            interval,
-            ai_provider,
-            ai_model,
-            ai_api_url,
-            slack_webhook,
-            webhook_url,
-            smtp_host,
-            smtp_port,
-            smtp_user,
-            smtp_password,
-            email_recipients,
-        }) => {
+        Some(Command::Sniff(sniff)) => {
             let config = sniff::config::SniffConfig::from_env_and_args(sniff::config::SniffArgs {
-                once,
-                consume,
-                output: &output,
-                sources: sources.as_deref(),
-                interval,
-                ai_provider: ai_provider.as_deref(),
-                ai_model: ai_model.as_deref(),
-                ai_api_url: ai_api_url.as_deref(),
-                slack_webhook: slack_webhook.as_deref(),
-                webhook_url: webhook_url.as_deref(),
-                smtp_host: smtp_host.as_deref(),
-                smtp_port,
-                smtp_user: smtp_user.as_deref(),
-                smtp_password: smtp_password.as_deref(),
-                email_recipients: email_recipients.as_deref(),
+                once: sniff.once,
+                consume: sniff.consume,
+                output: &sniff.output,
+                sources: sniff.sources.as_deref(),
+                interval: sniff.interval,
+                ai_provider: sniff.ai_provider.as_deref(),
+                ai_model: sniff.ai_model.as_deref(),
+                ai_api_url: sniff.ai_api_url.as_deref(),
+                slack_webhook: sniff.slack_webhook.as_deref(),
+                webhook_url: sniff.webhook_url.as_deref(),
+                smtp_host: sniff.smtp_host.as_deref(),
+                smtp_port: sniff.smtp_port,
+                smtp_user: sniff.smtp_user.as_deref(),
+                smtp_password: sniff.smtp_password.as_deref(),
+                email_recipients: sniff.email_recipients.as_deref(),
             });
             run_sniff(config).await
         }
