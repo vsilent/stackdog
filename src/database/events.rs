@@ -51,6 +51,10 @@ impl EventsDb {
     pub fn len(&self) -> usize {
         self.events.read().unwrap().len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.events.read().unwrap().is_empty()
+    }
 }
 
 impl Default for EventsDb {
@@ -102,6 +106,8 @@ mod tests {
     #[test]
     fn test_events_db_filters_events_by_pid() {
         let db = EventsDb::new().unwrap();
+        assert!(db.is_empty());
+
         db.insert(SecurityEvent::Syscall(SyscallEvent::new(
             42,
             1000,
@@ -128,5 +134,6 @@ mod tests {
         assert_eq!(pid_events.len(), 1);
         assert_eq!(pid_events[0].pid(), Some(42));
         assert_eq!(db.len(), 3);
+        assert!(!db.is_empty());
     }
 }
