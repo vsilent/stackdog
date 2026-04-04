@@ -112,22 +112,22 @@ mod tests {
         match cli.command {
             Some(Command::Sniff(sniff)) => {
                 let SniffCommand {
-                once,
-                consume,
-                output,
-                sources,
-                interval,
-                ai_provider,
-                ai_model,
-                ai_api_url,
-                slack_webhook,
-                webhook_url,
-                smtp_host,
-                smtp_port,
-                smtp_user,
-                smtp_password,
-                email_recipients,
-            } = *sniff;
+                    once,
+                    consume,
+                    output,
+                    sources,
+                    interval,
+                    ai_provider,
+                    ai_model,
+                    ai_api_url,
+                    slack_webhook,
+                    webhook_url,
+                    smtp_host,
+                    smtp_port,
+                    smtp_user,
+                    smtp_password,
+                    email_recipients,
+                } = *sniff;
                 assert!(!once);
                 assert!(!consume);
                 assert_eq!(output, "./stackdog-logs/");
@@ -203,22 +203,22 @@ mod tests {
         match cli.command {
             Some(Command::Sniff(sniff)) => {
                 let SniffCommand {
-                once,
-                consume,
-                output,
-                sources,
-                interval,
-                ai_provider,
-                ai_model,
-                ai_api_url,
-                slack_webhook,
-                webhook_url,
-                smtp_host,
-                smtp_port,
-                smtp_user,
-                smtp_password,
-                email_recipients,
-            } = *sniff;
+                    once,
+                    consume,
+                    output,
+                    sources,
+                    interval,
+                    ai_provider,
+                    ai_model,
+                    ai_api_url,
+                    slack_webhook,
+                    webhook_url,
+                    smtp_host,
+                    smtp_port,
+                    smtp_user,
+                    smtp_password,
+                    email_recipients,
+                } = *sniff;
                 assert!(once);
                 assert!(consume);
                 assert_eq!(output, "/tmp/logs/");
