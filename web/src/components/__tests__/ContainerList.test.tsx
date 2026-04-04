@@ -140,6 +140,26 @@ describe('ContainerList Component', () => {
     });
   });
 
+  test('shows release action when security state is quarantined', async () => {
+    const quarantinedBySecurityState = {
+      ...mockContainers[0],
+      status: 'Running' as const,
+      securityStatus: {
+        ...mockContainers[0].securityStatus,
+        state: 'Quarantined' as const,
+      },
+    };
+
+    (apiService.getContainers as jest.Mock).mockResolvedValue([quarantinedBySecurityState]);
+
+    render(<ContainerList />);
+
+    expect(await screen.findByText('web-server')).toBeInTheDocument();
+    expect(screen.getAllByText('Quarantined').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('Release')).toBeInTheDocument();
+    expect(screen.queryByText('Quarantine')).not.toBeInTheDocument();
+  });
+
   test('filters by status', async () => {
     render(<ContainerList />);
 

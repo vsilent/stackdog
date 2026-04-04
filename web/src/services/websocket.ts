@@ -1,3 +1,5 @@
+import { resolveApiPort } from './ports';
+
 type WebSocketEvent = 
   | 'threat:detected'
   | 'alert:created'
@@ -31,7 +33,7 @@ export class WebSocketService {
   constructor(url?: string) {
     const env = ((globalThis as { __STACKDOG_ENV__?: EnvLike }).__STACKDOG_ENV__ ??
       {}) as EnvLike;
-    const apiPort = env.REACT_APP_API_PORT || env.APP_PORT || '5555';
+    const apiPort = resolveApiPort(env);
     this.url = url || env.REACT_APP_WS_URL || `ws://localhost:${apiPort}/ws`;
   }
 

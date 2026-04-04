@@ -119,9 +119,17 @@ const ContainerList: React.FC = () => {
           <div className="container-items">
             {containers.map((container) => (
               <div key={container.id} className="container-item">
+                {(() => {
+                  const isQuarantined =
+                    container.status === 'Quarantined' || container.securityStatus.state === 'Quarantined';
+
+                  return (
+                    <>
                 <div className="container-header">
                   <h5>{container.name}</h5>
-                  <Badge bg={getStatusBadge(container.status)}>{container.status}</Badge>
+                  <Badge bg={getStatusBadge(isQuarantined ? 'Quarantined' : container.status)}>
+                    {isQuarantined ? 'Quarantined' : container.status}
+                  </Badge>
                 </div>
                 <div className="container-details">
                   <p className="mb-1"><strong>Image:</strong> {container.image}</p>
@@ -159,7 +167,7 @@ const ContainerList: React.FC = () => {
                   >
                     Details
                   </Button>
-                  {container.status === 'Running' && (
+                  {!isQuarantined && container.status === 'Running' && (
                     <Button
                       variant="outline-danger"
                       size="sm"
@@ -171,7 +179,7 @@ const ContainerList: React.FC = () => {
                       Quarantine
                     </Button>
                   )}
-                  {container.status === 'Quarantined' && (
+                  {isQuarantined && (
                     <Button
                       variant="outline-success"
                       size="sm"
@@ -181,6 +189,9 @@ const ContainerList: React.FC = () => {
                     </Button>
                   )}
                 </div>
+                    </>
+                  );
+                })()}
               </div>
             ))}
           </div>

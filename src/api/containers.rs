@@ -83,11 +83,17 @@ fn to_container_response(
     security: &crate::docker::containers::ContainerSecurityStatus,
     stats: Option<&ContainerStats>,
 ) -> ContainerResponse {
+    let effective_status = if security.security_state == "Quarantined" {
+        "Quarantined".to_string()
+    } else {
+        container.status.clone()
+    };
+
     ContainerResponse {
         id: container.id.clone(),
         name: container.name.clone(),
         image: container.image.clone(),
-        status: container.status.clone(),
+        status: effective_status,
         security_status: ApiContainerSecurityStatus {
             state: security.security_state.clone(),
             threats: security.threats,
@@ -259,6 +265,24 @@ mod tests {
         assert_eq!(response.network_activity.received_packets, None);
         assert_eq!(response.network_activity.transmitted_packets, None);
         assert_eq!(response.network_activity.blocked_connections, None);
+    }
+
+    #[actix_rt::test]
+    async fn test_to_container_response_marks_quarantined_status_from_security_state() {
+        let response = to_container_response(
+            &sample_container(),
+            &crate::docker::containers::ContainerSecurityStatus {
+                container_id: "container-1".into(),
+                risk_score: 88,
+                threats: 3,
+                security_state: "Quarantined".into(),
+            },
+            None,
+        );
+
+        assert_eq!(response.status, "Quarantined");
+        assert_eq!(response.security_status.state, "Quarantined");
+        assert!(response.network_activity.suspicious_activity);
     }
 
     #[actix_rt::test]
