@@ -181,6 +181,19 @@ mod tests {
     use crate::database::repositories::offenses::OffenseStatus;
     use crate::database::{create_pool, init_database, list_alerts, AlertFilter};
     use chrono::Utc;
+    #[cfg(target_os = "linux")]
+    use std::process::Command;
+
+    #[cfg(target_os = "linux")]
+    fn running_as_root() -> bool {
+        Command::new("id")
+            .arg("-u")
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .map(|stdout| stdout.trim() == "0")
+            .unwrap_or(false)
+    }
 
     #[actix_rt::test]
     async fn test_extract_ip_candidates() {
@@ -227,10 +240,21 @@ mod tests {
                 source_path: Some("/var/log/auth.log".into()),
                 sample_line: Some("Failed password from 192.0.2.44".into()),
             })
-            .await
-            .unwrap();
+            .await;
 
         assert!(!first);
+        #[cfg(target_os = "linux")]
+        if !running_as_root() {
+            let error = second.unwrap_err().to_string();
+            assert!(
+                error.contains("Operation not permitted")
+                    || error.contains("Permission denied")
+                    || error.contains("you must be root")
+            );
+            return;
+        }
+
+        let second = second.unwrap();
         assert!(second);
         assert!(active_block_for_ip(&pool, "192.0.2.44").unwrap().is_some());
     }
@@ -260,8 +284,20 @@ mod tests {
                 source_path: Some("/var/log/auth.log".into()),
                 sample_line: Some("Failed password from 192.0.2.55".into()),
             })
-            .await
-            .unwrap();
+            .await;
+
+        #[cfg(target_os = "linux")]
+        if !running_as_root() {
+            let error = blocked.unwrap_err().to_string();
+            assert!(
+                error.contains("Operation not permitted")
+                    || error.contains("Permission denied")
+                    || error.contains("you must be root")
+            );
+            return;
+        }
+
+        let blocked = blocked.unwrap();
         assert!(blocked);
 
         let released = engine.unban_expired().await.unwrap();

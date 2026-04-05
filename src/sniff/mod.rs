@@ -300,6 +300,19 @@ mod tests {
     use crate::ip_ban::{IpBanConfig, IpBanEngine};
     use crate::sniff::analyzer::{AnomalySeverity, LogAnomaly, LogSummary};
     use chrono::Utc;
+    #[cfg(target_os = "linux")]
+    use std::process::Command;
+
+    #[cfg(target_os = "linux")]
+    fn running_as_root() -> bool {
+        Command::new("id")
+            .arg("-u")
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .map(|stdout| stdout.trim() == "0")
+            .unwrap_or(false)
+    }
 
     fn memory_sniff_config() -> SniffConfig {
         let mut config = SniffConfig::from_env_and_args(config::SniffArgs {
@@ -473,7 +486,20 @@ mod tests {
         );
 
         orchestrator.apply_ip_ban(&summary, &engine).await.unwrap();
-        orchestrator.apply_ip_ban(&summary, &engine).await.unwrap();
+        let second_attempt = orchestrator.apply_ip_ban(&summary, &engine).await;
+
+        #[cfg(target_os = "linux")]
+        if !running_as_root() {
+            let error = second_attempt.unwrap_err().to_string();
+            assert!(
+                error.contains("Operation not permitted")
+                    || error.contains("Permission denied")
+                    || error.contains("you must be root")
+            );
+            return;
+        }
+
+        second_attempt.unwrap();
 
         assert!(active_block_for_ip(&orchestrator.pool, "192.0.2.81")
             .unwrap()

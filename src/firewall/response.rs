@@ -33,6 +33,13 @@ pub struct ResponseAction {
 }
 
 impl ResponseAction {
+    fn quarantine_container_error(container_id: &str) -> anyhow::Error {
+        anyhow::anyhow!(
+            "Docker-based container quarantine flow is required for {} because firewall backends do not implement container-specific quarantine. Use the Docker/API quarantine path instead.",
+            container_id
+        )
+    }
+
     fn preferred_backend() -> Result<Box<dyn FirewallBackend>> {
         if let Ok(mut backend) = NfTablesBackend::new() {
             backend.initialize()?;
@@ -105,10 +112,7 @@ impl ResponseAction {
                 let backend = Self::preferred_backend()?;
                 backend.block_port(*port)
             }
-            ResponseType::QuarantineContainer(id) => {
-                let backend = Self::preferred_backend()?;
-                backend.block_container(id)
-            }
+            ResponseType::QuarantineContainer(id) => Err(Self::quarantine_container_error(id)),
             ResponseType::KillProcess(pid) => {
                 let output = Command::new("kill")
                     .args(["-TERM", &pid.to_string()])
