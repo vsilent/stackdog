@@ -26,13 +26,15 @@ impl std::fmt::Display for LogSourceType {
     }
 }
 
-impl LogSourceType {
-    pub fn from_str(s: &str) -> Self {
-        match s {
+impl std::str::FromStr for LogSourceType {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(match s {
             "DockerContainer" => LogSourceType::DockerContainer,
             "SystemLog" => LogSourceType::SystemLog,
             _ => LogSourceType::CustomFile,
-        }
+        })
     }
 }
 
@@ -183,17 +185,32 @@ mod tests {
 
     #[test]
     fn test_log_source_type_display() {
-        assert_eq!(LogSourceType::DockerContainer.to_string(), "DockerContainer");
+        assert_eq!(
+            LogSourceType::DockerContainer.to_string(),
+            "DockerContainer"
+        );
         assert_eq!(LogSourceType::SystemLog.to_string(), "SystemLog");
         assert_eq!(LogSourceType::CustomFile.to_string(), "CustomFile");
     }
 
     #[test]
     fn test_log_source_type_from_str() {
-        assert_eq!(LogSourceType::from_str("DockerContainer"), LogSourceType::DockerContainer);
-        assert_eq!(LogSourceType::from_str("SystemLog"), LogSourceType::SystemLog);
-        assert_eq!(LogSourceType::from_str("CustomFile"), LogSourceType::CustomFile);
-        assert_eq!(LogSourceType::from_str("anything"), LogSourceType::CustomFile);
+        assert_eq!(
+            "DockerContainer".parse::<LogSourceType>().unwrap(),
+            LogSourceType::DockerContainer
+        );
+        assert_eq!(
+            "SystemLog".parse::<LogSourceType>().unwrap(),
+            LogSourceType::SystemLog
+        );
+        assert_eq!(
+            "CustomFile".parse::<LogSourceType>().unwrap(),
+            LogSourceType::CustomFile
+        );
+        assert_eq!(
+            "anything".parse::<LogSourceType>().unwrap(),
+            LogSourceType::CustomFile
+        );
     }
 
     #[test]
@@ -216,7 +233,7 @@ mod tests {
         writeln!(tmp, "test log line").unwrap();
         let path = tmp.path().to_string_lossy().to_string();
 
-        let sources = discover_custom_sources(&[path.clone()]);
+        let sources = discover_custom_sources(std::slice::from_ref(&path));
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].source_type, LogSourceType::CustomFile);
         assert_eq!(sources[0].path_or_id, path);
@@ -234,10 +251,7 @@ mod tests {
         writeln!(tmp, "log").unwrap();
         let existing = tmp.path().to_string_lossy().to_string();
 
-        let sources = discover_custom_sources(&[
-            existing.clone(),
-            "/does/not/exist.log".into(),
-        ]);
+        let sources = discover_custom_sources(&[existing.clone(), "/does/not/exist.log".into()]);
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].path_or_id, existing);
     }

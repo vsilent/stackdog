@@ -7,8 +7,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::fs::File;
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 
 /// A single log entry from any source
@@ -56,11 +56,19 @@ impl FileLogReader {
 
         let file = File::open(path)?;
         let file_len = file.metadata()?.len();
-        log::debug!("Reading {} (size: {} bytes, offset: {})", self.path, file_len, self.offset);
+        log::debug!(
+            "Reading {} (size: {} bytes, offset: {})",
+            self.path,
+            file_len,
+            self.offset
+        );
 
         // Handle file truncation (log rotation)
         if self.offset > file_len {
-            log::debug!("File truncated (rotation?), resetting offset from {} to 0", self.offset);
+            log::debug!(
+                "File truncated (rotation?), resetting offset from {} to 0",
+                self.offset
+            );
             self.offset = 0;
         }
 
@@ -68,25 +76,29 @@ impl FileLogReader {
         reader.seek(SeekFrom::Start(self.offset))?;
 
         let mut entries = Vec::new();
-        let mut line = String::new();
+        let mut line = Vec::new();
 
-        while reader.read_line(&mut line)? > 0 {
-            let trimmed = line.trim_end().to_string();
+        while reader.read_until(b'\n', &mut line)? > 0 {
+            let decoded = String::from_utf8_lossy(&line);
+            let trimmed = decoded.trim_end().to_string();
             if !trimmed.is_empty() {
                 entries.push(LogEntry {
                     source_id: self.source_id.clone(),
                     timestamp: Utc::now(),
                     line: trimmed,
-                    metadata: HashMap::from([
-                        ("source_path".into(), self.path.clone()),
-                    ]),
+                    metadata: HashMap::from([("source_path".into(), self.path.clone())]),
                 });
             }
             line.clear();
         }
 
         self.offset = reader.stream_position()?;
-        log::debug!("Read {} entries from {}, new offset: {}", entries.len(), self.path, self.offset);
+        log::debug!(
+            "Read {} entries from {}, new offset: {}",
+            entries.len(),
+            self.path,
+            self.offset
+        );
         Ok(entries)
     }
 }
@@ -126,8 +138,8 @@ impl DockerLogReader {
 #[async_trait]
 impl LogReader for DockerLogReader {
     async fn read_new_entries(&mut self) -> Result<Vec<LogEntry>> {
-        use bollard::Docker;
         use bollard::container::LogsOptions;
+        use bollard::Docker;
         use futures_util::stream::StreamExt;
 
         let docker = match Docker::connect_with_local_defaults() {
@@ -143,7 +155,11 @@ impl LogReader for DockerLogReader {
             stderr: true,
             since: self.last_timestamp.unwrap_or(0),
             timestamps: true,
-            tail: if self.last_timestamp.is_none() { "100".to_string() } else { "all".to_string() },
+            tail: if self.last_timestamp.is_none() {
+                "100".to_string()
+            } else {
+                "all".to_string()
+            },
             ..Default::default()
         };
 
@@ -160,9 +176,10 @@ impl LogReader for DockerLogReader {
                             source_id: self.source_id.clone(),
                             timestamp: Utc::now(),
                             line: trimmed,
-                            metadata: HashMap::from([
-                                ("container_id".into(), self.container_id.clone()),
-                            ]),
+                            metadata: HashMap::from([(
+                                "container_id".into(),
+                                self.container_id.clone(),
+                            )]),
                         });
                     }
                 }
@@ -211,8 +228,10 @@ impl LogReader for JournaldReader {
 
         let mut cmd = Command::new("journalctl");
         cmd.arg("--no-pager")
-            .arg("-o").arg("short-iso")
-            .arg("-n").arg("200");
+            .arg("-o")
+            .arg("short-iso")
+            .arg("-n")
+            .arg("200");
 
         if let Some(ref cursor) = self.cursor {
             cmd.arg("--after-cursor").arg(cursor);
@@ -235,9 +254,7 @@ impl LogReader for JournaldReader {
                     source_id: self.source_id.clone(),
                     timestamp: Utc::now(),
                     line: trimmed,
-                    metadata: HashMap::from([
-                        ("source".into(), "journald".into()),
-                    ]),
+                    metadata: HashMap::from([("source".into(), "journald".into())]),
                 });
             }
         }
@@ -290,11 +307,7 @@ mod tests {
             writeln!(f, "line 3").unwrap();
         }
 
-        let mut reader = FileLogReader::new(
-            "test".into(),
-            path.to_string_lossy().to_string(),
-            0,
-        );
+        let mut reader = FileLogReader::new("test".into(), path.to_string_lossy().to_string(), 0);
         let entries = reader.read_new_entries().await.unwrap();
         assert_eq!(entries.len(), 3);
         assert_eq!(entries[0].line, "line 1");
@@ -325,7 +338,10 @@ mod tests {
 
         // Append new lines
         {
-            let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
             writeln!(f, "line C").unwrap();
         }
 
@@ -333,6 +349,21 @@ mod tests {
         let entries = reader.read_new_entries().await.unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].line, "line C");
+    }
+
+    #[tokio::test]
+    async fn test_file_log_reader_handles_invalid_utf8() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("invalid-utf8.log");
+        std::fs::write(&path, b"ok line\nbad byte \xff\n").unwrap();
+
+        let mut reader = FileLogReader::new("utf8".into(), path.to_string_lossy().to_string(), 0);
+        let entries = reader.read_new_entries().await.unwrap();
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].line, "ok line");
+        assert!(entries[1].line.contains("bad byte"));
+        assert!(entries[1].line.contains('\u{fffd}'));
     }
 
     #[tokio::test]
@@ -382,11 +413,7 @@ mod tests {
             writeln!(f, "line 3").unwrap();
         }
 
-        let mut reader = FileLogReader::new(
-            "empty".into(),
-            path.to_string_lossy().to_string(),
-            0,
-        );
+        let mut reader = FileLogReader::new("empty".into(), path.to_string_lossy().to_string(), 0);
         let entries = reader.read_new_entries().await.unwrap();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].line, "line 1");

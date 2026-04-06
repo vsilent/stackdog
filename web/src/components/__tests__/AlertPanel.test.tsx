@@ -29,6 +29,7 @@ const mockAlerts = [
 
 describe('AlertPanel Component', () => {
   beforeEach(() => {
+    jest.clearAllMocks();
     (apiService.getAlerts as jest.Mock).mockResolvedValue(mockAlerts);
     (apiService.getAlertStats as jest.Mock).mockResolvedValue({
       totalCount: 10,
@@ -36,14 +37,15 @@ describe('AlertPanel Component', () => {
       acknowledgedCount: 3,
       resolvedCount: 2,
     });
+    (webSocketService.connect as jest.Mock).mockResolvedValue(undefined);
+    (webSocketService.subscribe as jest.Mock).mockReturnValue(() => {});
+    (webSocketService.disconnect as jest.Mock).mockImplementation(() => {});
   });
 
   test('lists alerts correctly', async () => {
     render(<AlertPanel />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Suspicious activity detected')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('Suspicious activity detected')).toBeInTheDocument();
 
     expect(screen.getByText('Rule violation detected')).toBeInTheDocument();
   });
@@ -51,29 +53,27 @@ describe('AlertPanel Component', () => {
   test('filters alerts by severity', async () => {
     render(<AlertPanel />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Suspicious activity detected')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('Suspicious activity detected')).toBeInTheDocument();
 
     const severityFilter = screen.getByLabelText('Filter by severity');
     fireEvent.change(severityFilter, { target: { value: 'High' } });
 
-    // Should only show High severity alerts
-    expect(screen.getByText('Suspicious activity detected')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(apiService.getAlerts).toHaveBeenLastCalledWith({ severity: ['High'] });
+    });
   });
 
   test('filters alerts by status', async () => {
     render(<AlertPanel />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Suspicious activity detected')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('Suspicious activity detected')).toBeInTheDocument();
 
     const statusFilter = screen.getByLabelText('Filter by status');
     fireEvent.change(statusFilter, { target: { value: 'New' } });
 
-    // Should only show New alerts
-    expect(screen.getByText('Suspicious activity detected')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(apiService.getAlerts).toHaveBeenLastCalledWith({ status: ['New'] });
+    });
   });
 
   test('acknowledge alert works', async () => {
@@ -81,11 +81,9 @@ describe('AlertPanel Component', () => {
 
     render(<AlertPanel />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Suspicious activity detected')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('Suspicious activity detected')).toBeInTheDocument();
 
-    const acknowledgeButton = screen.getByText('Acknowledge');
+    const acknowledgeButton = screen.getAllByText('Acknowledge')[0];
     fireEvent.click(acknowledgeButton);
 
     await waitFor(() => {
@@ -98,15 +96,13 @@ describe('AlertPanel Component', () => {
 
     render(<AlertPanel />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Suspicious activity detected')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('Suspicious activity detected')).toBeInTheDocument();
 
-    const resolveButton = screen.getByText('Resolve');
+    const resolveButton = screen.getAllByText('Resolve')[0];
     fireEvent.click(resolveButton);
 
     await waitFor(() => {
-      expect(apiService.resolveAlert).toHaveBeenCalledWith('alert-1', expect.any(String));
+      expect(apiService.resolveAlert).toHaveBeenCalledWith('alert-1', 'Resolved via dashboard');
     });
   });
 
@@ -136,9 +132,7 @@ describe('AlertPanel Component', () => {
 
     render(<AlertPanel />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Alert 0')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('Alert 0')).toBeInTheDocument();
 
     // Should show first 10 alerts
     expect(screen.getByText('Alert 0')).toBeInTheDocument();
@@ -148,7 +142,6 @@ describe('AlertPanel Component', () => {
     const nextPageButton = screen.getByText('Next');
     fireEvent.click(nextPageButton);
 
-    // Should show next 10 alerts
     await waitFor(() => {
       expect(screen.getByText('Alert 10')).toBeInTheDocument();
     });
@@ -159,18 +152,18 @@ describe('AlertPanel Component', () => {
 
     render(<AlertPanel />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Suspicious activity detected')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('Suspicious activity detected')).toBeInTheDocument();
 
     const selectAllCheckbox = screen.getByLabelText('Select all alerts');
     fireEvent.click(selectAllCheckbox);
 
-    const bulkAcknowledgeButton = screen.getByText('Acknowledge Selected');
+    const bulkAcknowledgeButton = await screen.findByText(/Acknowledge Selected/);
     fireEvent.click(bulkAcknowledgeButton);
 
     await waitFor(() => {
-      expect(apiService.acknowledgeAlert).toHaveBeenCalled();
+      expect(apiService.acknowledgeAlert).toHaveBeenCalledTimes(2);
+      expect(apiService.acknowledgeAlert).toHaveBeenCalledWith('alert-1');
+      expect(apiService.acknowledgeAlert).toHaveBeenCalledWith('alert-2');
     });
   });
 });

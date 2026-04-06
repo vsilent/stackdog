@@ -3,11 +3,11 @@
 //! Persists discovered log sources and AI summaries, following
 //! the same pattern as the alerts repository.
 
-use rusqlite::params;
-use anyhow::Result;
 use crate::database::connection::DbPool;
-use crate::sniff::discovery::{LogSource, LogSourceType};
+use crate::sniff::discovery::LogSource;
+use anyhow::Result;
 use chrono::Utc;
+use rusqlite::params;
 
 /// Create or update a log source (upsert by path_or_id)
 pub fn upsert_log_source(pool: &DbPool, source: &LogSource) -> Result<()> {
@@ -35,26 +35,27 @@ pub fn list_log_sources(pool: &DbPool) -> Result<Vec<LogSource>> {
     let conn = pool.get()?;
     let mut stmt = conn.prepare(
         "SELECT id, source_type, path_or_id, name, discovered_at, last_read_position
-         FROM log_sources ORDER BY discovered_at DESC"
+         FROM log_sources ORDER BY discovered_at DESC",
     )?;
 
-    let sources = stmt.query_map([], |row| {
-        let source_type_str: String = row.get(1)?;
-        let discovered_str: String = row.get(4)?;
-        let pos: i64 = row.get(5)?;
-        Ok(LogSource {
-            id: row.get(0)?,
-            source_type: LogSourceType::from_str(&source_type_str),
-            path_or_id: row.get(2)?,
-            name: row.get(3)?,
-            discovered_at: chrono::DateTime::parse_from_rfc3339(&discovered_str)
-                .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now()),
-            last_read_position: pos as u64,
-        })
-    })?
-    .filter_map(|r| r.ok())
-    .collect();
+    let sources = stmt
+        .query_map([], |row| {
+            let source_type_str: String = row.get(1)?;
+            let discovered_str: String = row.get(4)?;
+            let pos: i64 = row.get(5)?;
+            Ok(LogSource {
+                id: row.get(0)?,
+                source_type: source_type_str.parse().unwrap(),
+                path_or_id: row.get(2)?,
+                name: row.get(3)?,
+                discovered_at: chrono::DateTime::parse_from_rfc3339(&discovered_str)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+                last_read_position: pos as u64,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
 
     Ok(sources)
 }
@@ -64,7 +65,7 @@ pub fn get_log_source_by_path(pool: &DbPool, path_or_id: &str) -> Result<Option<
     let conn = pool.get()?;
     let mut stmt = conn.prepare(
         "SELECT id, source_type, path_or_id, name, discovered_at, last_read_position
-         FROM log_sources WHERE path_or_id = ?"
+         FROM log_sources WHERE path_or_id = ?",
     )?;
 
     let result = stmt.query_row(params![path_or_id], |row| {
@@ -73,7 +74,7 @@ pub fn get_log_source_by_path(pool: &DbPool, path_or_id: &str) -> Result<Option<
         let pos: i64 = row.get(5)?;
         Ok(LogSource {
             id: row.get(0)?,
-            source_type: LogSourceType::from_str(&source_type_str),
+            source_type: source_type_str.parse().unwrap(),
             path_or_id: row.get(2)?,
             name: row.get(3)?,
             discovered_at: chrono::DateTime::parse_from_rfc3339(&discovered_str)
@@ -110,17 +111,19 @@ pub fn delete_log_source(pool: &DbPool, path_or_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Parameters for creating a log summary
+pub struct CreateLogSummaryParams<'a> {
+    pub source_id: &'a str,
+    pub summary_text: &'a str,
+    pub period_start: &'a str,
+    pub period_end: &'a str,
+    pub total_entries: i64,
+    pub error_count: i64,
+    pub warning_count: i64,
+}
+
 /// Store a log summary
-pub fn create_log_summary(
-    pool: &DbPool,
-    source_id: &str,
-    summary_text: &str,
-    period_start: &str,
-    period_end: &str,
-    total_entries: i64,
-    error_count: i64,
-    warning_count: i64,
-) -> Result<String> {
+pub fn create_log_summary(pool: &DbPool, params: CreateLogSummaryParams<'_>) -> Result<String> {
     let conn = pool.get()?;
     let id = uuid::Uuid::new_v4().to_string();
     let now = Utc::now().to_rfc3339();
@@ -129,8 +132,17 @@ pub fn create_log_summary(
         "INSERT INTO log_summaries (id, source_id, summary_text, period_start, period_end,
          total_entries, error_count, warning_count, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![id, source_id, summary_text, period_start, period_end,
-                total_entries, error_count, warning_count, now],
+        rusqlite::params![
+            id,
+            params.source_id,
+            params.summary_text,
+            params.period_start,
+            params.period_end,
+            params.total_entries,
+            params.error_count,
+            params.warning_count,
+            now
+        ],
     )?;
 
     Ok(id)
@@ -142,24 +154,25 @@ pub fn list_summaries_for_source(pool: &DbPool, source_id: &str) -> Result<Vec<L
     let mut stmt = conn.prepare(
         "SELECT id, source_id, summary_text, period_start, period_end,
                 total_entries, error_count, warning_count, created_at
-         FROM log_summaries WHERE source_id = ? ORDER BY created_at DESC"
+         FROM log_summaries WHERE source_id = ? ORDER BY created_at DESC",
     )?;
 
-    let rows = stmt.query_map(params![source_id], |row| {
-        Ok(LogSummaryRow {
-            id: row.get(0)?,
-            source_id: row.get(1)?,
-            summary_text: row.get(2)?,
-            period_start: row.get(3)?,
-            period_end: row.get(4)?,
-            total_entries: row.get(5)?,
-            error_count: row.get(6)?,
-            warning_count: row.get(7)?,
-            created_at: row.get(8)?,
-        })
-    })?
-    .filter_map(|r| r.ok())
-    .collect();
+    let rows = stmt
+        .query_map(params![source_id], |row| {
+            Ok(LogSummaryRow {
+                id: row.get(0)?,
+                source_id: row.get(1)?,
+                summary_text: row.get(2)?,
+                period_start: row.get(3)?,
+                period_end: row.get(4)?,
+                total_entries: row.get(5)?,
+                error_count: row.get(6)?,
+                warning_count: row.get(7)?,
+                created_at: row.get(8)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
 
     Ok(rows)
 }
@@ -182,6 +195,7 @@ pub struct LogSummaryRow {
 mod tests {
     use super::*;
     use crate::database::connection::{create_pool, init_database};
+    use crate::sniff::discovery::LogSourceType;
 
     fn setup_test_db() -> DbPool {
         let pool = create_pool(":memory:").unwrap();
@@ -257,7 +271,9 @@ mod tests {
 
         update_read_position(&pool, "/tmp/app.log", 4096).unwrap();
 
-        let updated = get_log_source_by_path(&pool, "/tmp/app.log").unwrap().unwrap();
+        let updated = get_log_source_by_path(&pool, "/tmp/app.log")
+            .unwrap()
+            .unwrap();
         assert_eq!(updated.last_read_position, 4096);
     }
 
@@ -288,14 +304,17 @@ mod tests {
 
         let summary_id = create_log_summary(
             &pool,
-            &source.id,
-            "System running normally. 3 warnings about disk space.",
-            "2026-03-30T12:00:00Z",
-            "2026-03-30T13:00:00Z",
-            500,
-            0,
-            3,
-        ).unwrap();
+            CreateLogSummaryParams {
+                source_id: &source.id,
+                summary_text: "System running normally. 3 warnings about disk space.",
+                period_start: "2026-03-30T12:00:00Z",
+                period_end: "2026-03-30T13:00:00Z",
+                total_entries: 500,
+                error_count: 0,
+                warning_count: 3,
+            },
+        )
+        .unwrap();
 
         assert!(!summary_id.is_empty());
 

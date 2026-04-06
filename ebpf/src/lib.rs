@@ -4,5 +4,5 @@
 
 #![no_std]
 
-pub mod syscalls;
 pub mod maps;
+pub mod syscalls;

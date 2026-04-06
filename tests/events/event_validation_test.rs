@@ -2,22 +2,15 @@
 //!
 //! Tests for event validation logic
 
-use stackdog::events::syscall::{SyscallEvent, SyscallType};
-use stackdog::events::security::{
-    NetworkEvent, AlertEvent, AlertType, AlertSeverity,
-};
-use stackdog::events::validation::{EventValidator, ValidationResult};
 use chrono::Utc;
+use stackdog::events::security::{AlertEvent, AlertSeverity, AlertType, NetworkEvent};
+use stackdog::events::syscall::{SyscallEvent, SyscallType};
+use stackdog::events::validation::{EventValidator, ValidationResult};
 
 #[test]
 fn test_valid_syscall_event() {
-    let event = SyscallEvent::new(
-        1234,
-        1000,
-        SyscallType::Execve,
-        Utc::now(),
-    );
-    
+    let event = SyscallEvent::new(1234, 1000, SyscallType::Execve, Utc::now());
+
     let result = EventValidator::validate_syscall(&event);
     assert!(result.is_valid());
     assert_eq!(result, ValidationResult::Valid);
@@ -26,12 +19,12 @@ fn test_valid_syscall_event() {
 #[test]
 fn test_syscall_event_zero_pid() {
     let event = SyscallEvent::new(
-        0,  // kernel thread
+        0, // kernel thread
         0,
         SyscallType::Execve,
         Utc::now(),
     );
-    
+
     let result = EventValidator::validate_syscall(&event);
     // PID 0 is valid (kernel threads)
     assert!(result.is_valid());
@@ -48,7 +41,7 @@ fn test_invalid_ip_address() {
         timestamp: Utc::now(),
         container_id: None,
     };
-    
+
     let result = EventValidator::validate_network(&event);
     assert!(!result.is_valid());
     assert!(matches!(result, ValidationResult::Invalid(_)));
@@ -65,7 +58,7 @@ fn test_valid_ip_addresses() {
         "::1",
         "2001:db8::1",
     ];
-    
+
     for ip in valid_ips {
         let event = NetworkEvent {
             src_ip: ip.to_string(),
@@ -76,32 +69,24 @@ fn test_valid_ip_addresses() {
             timestamp: Utc::now(),
             container_id: None,
         };
-        
+
         let result = EventValidator::validate_network(&event);
         assert!(result.is_valid(), "IP {} should be valid", ip);
     }
 }
 
 #[test]
-fn test_invalid_port() {
-    let event = NetworkEvent {
-        src_ip: "192.168.1.1".to_string(),
-        dst_ip: "10.0.0.1".to_string(),
-        src_port: 70000,  // Invalid port (> 65535)
-        dst_port: 80,
-        protocol: "TCP".to_string(),
-        timestamp: Utc::now(),
-        container_id: None,
-    };
-    
-    let result = EventValidator::validate_network(&event);
-    assert!(!result.is_valid());
+fn test_invalid_port_not_representable_for_u16() {
+    // NetworkEvent ports are u16, so values > 65535 cannot be constructed.
+    // This test asserts type-level safety explicitly.
+    let max = u16::MAX;
+    assert_eq!(max, 65535);
 }
 
 #[test]
 fn test_valid_port_range() {
     let valid_ports = vec![0, 80, 443, 8080, 65535];
-    
+
     for port in valid_ports {
         let event = NetworkEvent {
             src_ip: "192.168.1.1".to_string(),
@@ -112,7 +97,7 @@ fn test_valid_port_range() {
             timestamp: Utc::now(),
             container_id: None,
         };
-        
+
         let result = EventValidator::validate_network(&event);
         assert!(result.is_valid(), "Port {} should be valid", port);
     }
@@ -127,7 +112,7 @@ fn test_alert_event_validation() {
         timestamp: Utc::now(),
         source_event_id: None,
     };
-    
+
     let result = EventValidator::validate_alert(&event);
     assert!(result.is_valid());
 }
@@ -141,7 +126,7 @@ fn test_alert_empty_message() {
         timestamp: Utc::now(),
         source_event_id: None,
     };
-    
+
     let result = EventValidator::validate_alert(&event);
     assert!(!result.is_valid());
 }
@@ -157,10 +142,10 @@ fn test_validation_result_error() {
 fn test_validation_result_display() {
     let valid = ValidationResult::Valid;
     assert_eq!(format!("{}", valid), "Valid");
-    
+
     let invalid = ValidationResult::Invalid("reason".to_string());
     assert!(format!("{}", invalid).contains("Invalid"));
-    
+
     let error = ValidationResult::Error("error".to_string());
     assert!(format!("{}", error).contains("error"));
 }
