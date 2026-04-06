@@ -124,6 +124,31 @@ docker run --rm -it \
   stackdog-local
 ```
 
+### Run backend + UI with Docker Compose
+
+To run `stackdog serve` and the web UI as two separate services from your current checkout:
+
+```bash
+docker compose -f docker-compose.app.yml up --build
+```
+
+This starts:
+
+- **API** at `http://localhost:5000`
+- **UI** at `http://localhost:3000`
+
+The compose stack uses:
+
+- `stackdog` service — builds `docker/local/Dockerfile` and runs `stackdog serve`
+- `stackdog-ui` service — builds the React app and serves it with Nginx
+- `stackdog-data` volume — persists the SQLite database between restarts
+
+To stop it:
+
+```bash
+docker compose -f docker-compose.app.yml down
+```
+
 ### Log Sniffing
 
 ```bash
@@ -179,6 +204,9 @@ docker run --rm -it -p 5000:5000 trydirect/stackdog:latest
 # Or, for the most reliable test of your current code, build and run your checkout
 docker build -f docker/local/Dockerfile -t stackdog-local .
 docker run --rm -it -p 5000:5000 stackdog-local
+
+# Or run backend + UI together
+docker compose -f docker-compose.app.yml up --build
 ```
 
 ---
