@@ -41,6 +41,8 @@ jobs:
         run: cargo test
 
       - name: Build static release
+        env:
+          CARGO_TARGET_DIR: target-cross
         run: cross build --release --target x86_64-unknown-linux-musl
 
       - name: Build frontend
@@ -56,7 +58,7 @@ jobs:
       - name: Package app
         run: |
           mkdir -p app/stackdog/dist
-          cp target/x86_64-unknown-linux-musl/release/stackdog app/stackdog/
+          cp target-cross/x86_64-unknown-linux-musl/release/stackdog app/stackdog/
           cp -a web/dist/. app/stackdog/
           cp docker/prod/Dockerfile app/Dockerfile
           touch app/.env
