@@ -13,6 +13,7 @@ services:
       - "5000:5000"
     volumes:
       - stackdog-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
 
   stackdog-ui:
     build:

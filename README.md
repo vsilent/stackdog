@@ -87,6 +87,7 @@ docker run --rm -it \
   -e APP_PORT=5000 \
   -e DATABASE_URL=/data/stackdog.db \
   -v stackdog-data:/data \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   trydirect/stackdog:latest
 ```
 
@@ -96,6 +97,15 @@ Then open another shell and hit the API:
 curl http://localhost:5000/api/security/status
 curl http://localhost:5000/api/threats
 curl http://localhost:5000/api/alerts
+```
+
+Mount the Docker socket when you want Docker-aware features such as container listing, live stats,
+mail abuse guard polling, Docker log discovery, and Docker-backed quarantine/release flows.
+
+If you do not want Stackdog to access the Docker daemon, disable the mail guard:
+
+```bash
+STACKDOG_MAIL_GUARD_ENABLED=false
 ```
 
 To try log sniffing inside Docker against host log files, mount them read-only and run the
@@ -121,6 +131,7 @@ docker run --rm -it \
   -e APP_PORT=5000 \
   -e DATABASE_URL=/data/stackdog.db \
   -v stackdog-data:/data \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   stackdog-local
 ```
 
@@ -139,7 +150,7 @@ This starts:
 
 The compose stack uses:
 
-- `stackdog` service — builds `docker/local/Dockerfile` and runs `stackdog serve`
+- `stackdog` service — builds `docker/backend/Dockerfile`, runs `stackdog serve`, and mounts `/var/run/docker.sock`
 - `stackdog-ui` service — builds the React app and serves it with Nginx
 - `stackdog-data` volume — persists the SQLite database between restarts
 
