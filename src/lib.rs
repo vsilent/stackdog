@@ -51,6 +51,7 @@ pub mod baselines;
 pub mod correlator;
 pub mod database;
 pub mod docker;
+pub mod ip_ban;
 pub mod ml;
 pub mod response;
 
@@ -71,6 +72,8 @@ pub use events::syscall::{SyscallEvent, SyscallType};
 pub use alerting::{Alert, AlertSeverity, AlertStatus, AlertType};
 pub use alerting::{AlertManager, AlertStats};
 pub use alerting::{NotificationChannel, NotificationConfig};
+#[cfg(target_os = "linux")]
+pub use response::{ActionPipeline, PipelineAction, PipelinePlan};
 
 // Linux-specific
 pub use collectors::{EbpfLoader, SyscallMonitor};

@@ -1,6 +1,6 @@
 # Stackdog Security
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)
+![Version](https://img.shields.io/badge/version-0.2.1-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)
@@ -71,6 +71,95 @@ cargo run
 cargo run -- serve
 ```
 
+### Run with Docker
+
+Use the published container image for the quickest way to explore the API.
+If you are validating a fresh branch or waiting for Docker Hub to pick up the latest CI build,
+prefer the local-image flow below so you know you are running your current checkout:
+
+```bash
+docker volume create stackdog-data
+
+docker run --rm -it \
+  --name stackdog \
+  -p 5000:5000 \
+  -e APP_HOST=0.0.0.0 \
+  -e APP_PORT=5000 \
+  -e DATABASE_URL=/data/stackdog.db \
+  -v stackdog-data:/data \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  trydirect/stackdog:latest
+```
+
+Then open another shell and hit the API:
+
+```bash
+curl http://localhost:5000/api/security/status
+curl http://localhost:5000/api/threats
+curl http://localhost:5000/api/alerts
+```
+
+Mount the Docker socket when you want Docker-aware features such as container listing, live stats,
+mail abuse guard polling, Docker log discovery, and Docker-backed quarantine/release flows.
+
+If you do not want Stackdog to access the Docker daemon, disable the mail guard:
+
+```bash
+STACKDOG_MAIL_GUARD_ENABLED=false
+```
+
+To try log sniffing inside Docker against host log files, mount them read-only and run the
+`sniff` subcommand instead of the default HTTP server:
+
+```bash
+docker run --rm -it \
+  -e DATABASE_URL=/tmp/stackdog.db \
+  -v /var/log:/host-logs:ro \
+  trydirect/stackdog:latest \
+  sniff --once --sources /host-logs/auth.log
+```
+
+If you want to test your current checkout instead of the latest published image:
+
+```bash
+docker build -f docker/backend/Dockerfile -t stackdog-local .
+
+docker run --rm -it \
+  --name stackdog-local \
+  -p 5000:5000 \
+  -e APP_HOST=0.0.0.0 \
+  -e APP_PORT=5000 \
+  -e DATABASE_URL=/data/stackdog.db \
+  -v stackdog-data:/data \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  stackdog-local
+```
+
+### Run backend + UI with Docker Compose
+
+To run `stackdog serve` and the web UI as two separate services from your current checkout:
+
+```bash
+docker compose -f docker-compose.app.yml up --build
+```
+
+This starts:
+
+- **API** at `http://localhost:5000`
+- **UI** at `http://localhost:3000`
+
+The compose stack uses:
+
+- `stackdog` service — builds `docker/backend/Dockerfile`, runs `stackdog serve`, and mounts `/var/run/docker.sock`
+- `stackdog-ui` service — builds the React app and serves it with Nginx
+- `stackdog-data` volume — persists the SQLite database between restarts
+
+To stop it:
+
+```bash
+docker compose -f docker-compose.app.yml down
+```
+
 ### Log Sniffing
 
 ```bash
@@ -120,11 +209,15 @@ for event in events {
 ### Docker Development
 
 ```bash
-# Start development environment
-docker-compose up -d
+# Run the published image
+docker run --rm -it -p 5000:5000 trydirect/stackdog:latest
 
-# View logs
-docker-compose logs -f stackdog
+# Or, for the most reliable test of your current code, build and run your checkout
+docker build -f docker/backend/Dockerfile -t stackdog-local .
+docker run --rm -it -p 5000:5000 stackdog-local
+
+# Or run backend + UI together
+docker compose -f docker-compose.app.yml up --build
 ```
 
 ---

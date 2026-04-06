@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import { SecurityStatus, Threat, ThreatStatistics } from '../types/security';
 import { Alert, AlertStats, AlertFilter } from '../types/alerts';
 import { Container, QuarantineRequest } from '../types/containers';
+import { resolveApiPort } from './ports';
 
 type EnvLike = {
   REACT_APP_API_URL?: string;
@@ -11,7 +12,7 @@ type EnvLike = {
 
 const env = ((globalThis as unknown as { __STACKDOG_ENV__?: EnvLike }).__STACKDOG_ENV__ ??
   {}) as EnvLike;
-const apiPort = env.REACT_APP_API_PORT || env.APP_PORT || '5555';
+const apiPort = resolveApiPort(env);
 const API_BASE_URL = env.REACT_APP_API_URL || `http://localhost:${apiPort}/api`;
 
 class ApiService {
@@ -27,10 +28,63 @@ class ApiService {
     });
   }
 
+  private firstNumber(...values: unknown[]): number | null {
+    return (values.find((value) => typeof value === 'number') as number | undefined) ?? null;
+  }
+
+  private firstString(...values: unknown[]): string | null {
+    return (
+      (values.find((value) => typeof value === 'string' && value.length > 0) as string | undefined) ??
+      null
+    );
+  }
+
+  private normalizeSecurityStatus(payload: Record<string, unknown>): SecurityStatus {
+    return {
+      overallScore: (payload.overallScore ?? payload.overall_score ?? 0) as number,
+      activeThreats: (payload.activeThreats ?? payload.active_threats ?? 0) as number,
+      quarantinedContainers: (payload.quarantinedContainers ?? payload.quarantined_containers ?? 0) as number,
+      alertsNew: (payload.alertsNew ?? payload.alerts_new ?? 0) as number,
+      alertsAcknowledged: (payload.alertsAcknowledged ?? payload.alerts_acknowledged ?? 0) as number,
+      lastUpdated: (payload.lastUpdated ?? payload.last_updated ?? new Date().toISOString()) as string,
+    };
+  }
+
+  private normalizeThreatStatistics(payload: Record<string, unknown>): ThreatStatistics {
+    return {
+      totalThreats: (payload.totalThreats ?? payload.total_threats ?? 0) as number,
+      bySeverity: (payload.bySeverity ?? payload.by_severity ?? {}) as ThreatStatistics['bySeverity'],
+      byType: (payload.byType ?? payload.by_type ?? {}) as Record<string, number>,
+      trend: (payload.trend ?? 'stable') as ThreatStatistics['trend'],
+    };
+  }
+
+  private normalizeAlert(payload: Record<string, unknown>): Alert {
+    return {
+      id: (payload.id ?? '') as string,
+      alertType: (payload.alertType ?? payload.alert_type ?? 'SystemEvent') as Alert['alertType'],
+      severity: (payload.severity ?? 'Info') as Alert['severity'],
+      message: (payload.message ?? '') as string,
+      status: (payload.status ?? 'New') as Alert['status'],
+      timestamp: (payload.timestamp ?? new Date().toISOString()) as string,
+      metadata: payload.metadata as Record<string, string> | undefined,
+    };
+  }
+
+  private normalizeAlertStats(payload: Record<string, unknown>): AlertStats {
+    return {
+      totalCount: (payload.totalCount ?? payload.total_count ?? 0) as number,
+      newCount: (payload.newCount ?? payload.new_count ?? 0) as number,
+      acknowledgedCount: (payload.acknowledgedCount ?? payload.acknowledged_count ?? 0) as number,
+      resolvedCount: (payload.resolvedCount ?? payload.resolved_count ?? 0) as number,
+      falsePositiveCount: (payload.falsePositiveCount ?? payload.false_positive_count ?? 0) as number,
+    };
+  }
+
   // Security Status
   async getSecurityStatus(): Promise<SecurityStatus> {
     const response = await this.api.get('/security/status');
-    return response.data;
+    return this.normalizeSecurityStatus(response.data as Record<string, unknown>);
   }
 
   async getThreats(): Promise<Threat[]> {
@@ -40,7 +94,7 @@ class ApiService {
 
   async getThreatStatistics(): Promise<ThreatStatistics> {
     const response = await this.api.get('/threats/statistics');
-    return response.data;
+    return this.normalizeThreatStatistics(response.data as Record<string, unknown>);
   }
 
   // Alerts
@@ -53,12 +107,12 @@ class ApiService {
       filter.status.forEach(s => params.append('status', s));
     }
     const response = await this.api.get('/alerts', { params });
-    return response.data;
+    return (response.data as Array<Record<string, unknown>>).map((alert) => this.normalizeAlert(alert));
   }
 
   async getAlertStats(): Promise<AlertStats> {
     const response = await this.api.get('/alerts/stats');
-    return response.data;
+    return this.normalizeAlertStats(response.data as Record<string, unknown>);
   }
 
   async acknowledgeAlert(alertId: string): Promise<void> {
@@ -77,25 +131,50 @@ class ApiService {
       const securityStatus = item.securityStatus ?? item.security_status ?? {};
       const networkActivity = item.networkActivity ?? item.network_activity ?? {};
 
-      return {
-        id: item.id ?? '',
-        name: item.name ?? item.id ?? 'unknown',
-        image: item.image ?? 'unknown',
-        status: item.status ?? 'Running',
-        securityStatus: {
-          state: securityStatus.state ?? 'Secure',
-          threats: securityStatus.threats ?? 0,
-          vulnerabilities: securityStatus.vulnerabilities ?? 0,
-          lastScan: securityStatus.lastScan ?? new Date().toISOString(),
-        },
-        riskScore: item.riskScore ?? item.risk_score ?? 0,
-        networkActivity: {
-          inboundConnections: networkActivity.inboundConnections ?? networkActivity.inbound_connections ?? 0,
-          outboundConnections: networkActivity.outboundConnections ?? networkActivity.outbound_connections ?? 0,
-          blockedConnections: networkActivity.blockedConnections ?? networkActivity.blocked_connections ?? 0,
-          suspiciousActivity: networkActivity.suspiciousActivity ?? networkActivity.suspicious_activity ?? false,
-        },
-        createdAt: item.createdAt ?? item.created_at ?? new Date().toISOString(),
+        return {
+          id: item.id ?? '',
+          name: item.name ?? item.id ?? 'unknown',
+          image: item.image ?? 'unknown',
+          status: item.status ?? 'Running',
+          securityStatus: {
+            state: securityStatus.state ?? 'Secure',
+            threats: securityStatus.threats ?? 0,
+            vulnerabilities: this.firstNumber(securityStatus.vulnerabilities),
+            lastScan: this.firstString(securityStatus.lastScan, securityStatus.last_scan),
+          },
+          riskScore: item.riskScore ?? item.risk_score ?? 0,
+          networkActivity: {
+            inboundConnections: this.firstNumber(
+              networkActivity.inboundConnections,
+              networkActivity.inbound_connections,
+            ),
+            outboundConnections: this.firstNumber(
+              networkActivity.outboundConnections,
+              networkActivity.outbound_connections,
+            ),
+            blockedConnections: this.firstNumber(
+              networkActivity.blockedConnections,
+              networkActivity.blocked_connections,
+            ),
+            receivedBytes: this.firstNumber(
+              networkActivity.receivedBytes,
+              networkActivity.received_bytes,
+            ),
+            transmittedBytes: this.firstNumber(
+              networkActivity.transmittedBytes,
+              networkActivity.transmitted_bytes,
+            ),
+            receivedPackets: this.firstNumber(
+              networkActivity.receivedPackets,
+              networkActivity.received_packets,
+            ),
+            transmittedPackets: this.firstNumber(
+              networkActivity.transmittedPackets,
+              networkActivity.transmitted_packets,
+            ),
+            suspiciousActivity: networkActivity.suspiciousActivity ?? networkActivity.suspicious_activity ?? false,
+          },
+          createdAt: item.createdAt ?? item.created_at ?? new Date().toISOString(),
       } as Container;
     });
   }

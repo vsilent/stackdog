@@ -2,7 +2,7 @@
 //!
 //! Enriches syscall events with additional context (container ID, process info, etc.)
 
-use crate::events::syscall::SyscallEvent;
+use crate::events::syscall::{SyscallDetails, SyscallEvent};
 use anyhow::Result;
 
 /// Event enricher
@@ -39,6 +39,26 @@ impl EventEnricher {
         // Try to get process comm if not already set
         if event.comm.is_none() {
             event.comm = self.get_process_comm(event.pid);
+        }
+
+        if let Some(SyscallDetails::Exec {
+            filename,
+            args,
+            argc: _,
+        }) = event.details.as_mut()
+        {
+            if filename.is_none() {
+                *filename = self.get_process_exe(event.pid).or_else(|| {
+                    self.get_process_cmdline(event.pid)
+                        .and_then(|cmdline| cmdline.first().cloned())
+                });
+            }
+
+            if args.is_empty() {
+                if let Some(cmdline) = self.get_process_cmdline(event.pid) {
+                    *args = cmdline;
+                }
+            }
         }
     }
 
@@ -103,6 +123,26 @@ impl EventEnricher {
         None
     }
 
+    /// Get full process command line arguments.
+    pub fn get_process_cmdline(&self, _pid: u32) -> Option<Vec<String>> {
+        #[cfg(target_os = "linux")]
+        {
+            let cmdline_path = format!("/proc/{}/cmdline", _pid);
+            if let Ok(content) = std::fs::read(&cmdline_path) {
+                let args = content
+                    .split(|byte| *byte == 0)
+                    .filter(|segment| !segment.is_empty())
+                    .map(|segment| String::from_utf8_lossy(segment).to_string())
+                    .collect::<Vec<_>>();
+                if !args.is_empty() {
+                    return Some(args);
+                }
+            }
+        }
+
+        None
+    }
+
     /// Get process working directory
     pub fn get_process_cwd(&self, _pid: u32) -> Option<String> {
         #[cfg(target_os = "linux")]
@@ -144,5 +184,14 @@ mod tests {
         let now = Utc::now();
         let normalized = normalize_timestamp(now);
         assert_eq!(now, normalized);
+    }
+
+    #[test]
+    fn test_get_process_cmdline_current_process() {
+        let enricher = EventEnricher::new().unwrap();
+        let _cmdline = enricher.get_process_cmdline(std::process::id());
+
+        #[cfg(target_os = "linux")]
+        assert!(_cmdline.is_some());
     }
 }

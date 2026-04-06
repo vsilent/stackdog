@@ -144,6 +144,11 @@ impl SyscallMonitor {
             let mut events = self.event_buffer.drain();
             for event in &mut events {
                 let _ = self._enricher.enrich(event);
+                if event.container_id.is_none() {
+                    if let Some(detector) = &mut self._container_detector {
+                        event.container_id = detector.detect_container(event.pid);
+                    }
+                }
             }
 
             events

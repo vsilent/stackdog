@@ -17,9 +17,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: x86_64-unknown-linux-musl
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Generate Secret Key
         run: head -c16 /dev/urandom > src/secret.key
@@ -36,8 +40,10 @@ jobs:
       - name: Test
         run: cargo test
 
-      - name: Build release
-        run: cargo build --release
+      - name: Build static release
+        env:
+          CARGO_TARGET_DIR: target-cross
+        run: cross build --release --target x86_64-unknown-linux-musl
 
       - name: Build frontend
         working-directory: ./web
@@ -52,7 +58,7 @@ jobs:
       - name: Package app
         run: |
           mkdir -p app/stackdog/dist
-          cp target/release/stackdog app/stackdog/
+          cp target-cross/x86_64-unknown-linux-musl/release/stackdog app/stackdog/
           cp -a web/dist/. app/stackdog/
           cp docker/prod/Dockerfile app/Dockerfile
           touch app/.env

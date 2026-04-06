@@ -14,3 +14,6 @@ CREATE TABLE IF NOT EXISTS alerts (
 CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status);
 CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity);
 CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp);
+CREATE INDEX IF NOT EXISTS idx_alerts_container_id
+    ON alerts(json_extract(metadata, '$.container_id'))
+    WHERE json_valid(metadata);

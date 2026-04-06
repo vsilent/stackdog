@@ -1,6 +1,6 @@
 [package]
 name = "stackdog"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Vasili Pascal <info@try.direct>"]
 edition = "2021"
 description = "Security platform for Docker containers and Linux servers"
@@ -55,6 +55,7 @@ zstd = "0.13"
 
 # Stream utilities
 futures-util = "0.3"
+lettre = { version = "0.11", default-features = false, features = ["tokio1", "tokio1-rustls-tls", "builder", "smtp-transport"] }
 
 # eBPF (Linux only)
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -78,6 +79,8 @@ ebpf = []
 # Testing
 tokio-test = "0.4"
 tempfile = "3"
+actix-test = "0.1"
+awc = "3"
 
 # Benchmarking
 criterion = { version = "0.5", features = ["html_reports"] }

@@ -239,6 +239,9 @@ pub fn calculate_severity_from_scores(scores: &[ThreatScore]) -> Severity {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::security::SecurityEvent;
+    use crate::events::syscall::{SyscallDetails, SyscallEvent, SyscallType};
+    use chrono::Utc;
 
     #[test]
     fn test_threat_score_creation() {
@@ -276,5 +279,93 @@ mod tests {
         assert_eq!(config.base_score(), 60);
         assert_eq!(config.multiplier(), 1.5);
         assert!(config.time_decay_enabled());
+    }
+
+    fn syscall_event(syscall_type: SyscallType) -> SecurityEvent {
+        SyscallEvent::builder()
+            .pid(1234)
+            .uid(1000)
+            .syscall_type(syscall_type)
+            .timestamp(Utc::now())
+            .build()
+            .into()
+    }
+
+    #[test]
+    fn test_calculate_score_returns_zero_for_non_matching_event() {
+        let scorer = ThreatScorer::new();
+        let event = SecurityEvent::Network(crate::events::security::NetworkEvent {
+            src_ip: "172.17.0.2".to_string(),
+            dst_ip: "198.51.100.10".to_string(),
+            src_port: 12345,
+            dst_port: 443,
+            protocol: "tcp".to_string(),
+            timestamp: Utc::now(),
+            container_id: Some("abc123".to_string()),
+        });
+
+        let score = scorer.calculate_score(&event);
+        assert_eq!(score.value(), 0);
+        assert_eq!(score.severity(), Severity::Info);
+    }
+
+    #[test]
+    fn test_calculate_score_for_builtin_signature_match() {
+        let scorer = ThreatScorer::new();
+        let event = syscall_event(SyscallType::Ptrace);
+
+        let score = scorer.calculate_score(&event);
+        assert_eq!(score.value(), 47);
+        assert_eq!(score.severity(), Severity::Medium);
+        assert!(!score.is_critical());
+    }
+
+    #[test]
+    fn test_calculate_score_respects_config_multiplier() {
+        let scorer = ThreatScorer::with_config(
+            ScoringConfig::default()
+                .with_base_score(80)
+                .with_multiplier(1.25),
+        );
+        let event = syscall_event(SyscallType::Connect);
+
+        let score = scorer.calculate_score(&event);
+        assert_eq!(score.value(), 67);
+        assert_eq!(score.severity(), Severity::Medium);
+    }
+
+    #[test]
+    fn test_calculate_score_for_smtp_connect_event_uses_builtin_connect_signature() {
+        let scorer = ThreatScorer::new();
+        let event = SecurityEvent::Syscall(
+            SyscallEvent::builder()
+                .pid(1234)
+                .uid(1000)
+                .syscall_type(SyscallType::Connect)
+                .timestamp(Utc::now())
+                .details(Some(SyscallDetails::Connect {
+                    dst_addr: Some("198.51.100.25".to_string()),
+                    dst_port: 587,
+                    family: 2,
+                }))
+                .build(),
+        );
+
+        let score = scorer.calculate_score(&event);
+        assert_eq!(score.value(), 33);
+        assert_eq!(score.severity(), Severity::Low);
+    }
+
+    #[test]
+    fn test_calculate_cumulative_score_applies_average_and_bonus() {
+        let scorer = ThreatScorer::new();
+        let events = vec![
+            syscall_event(SyscallType::Ptrace),
+            syscall_event(SyscallType::Connect),
+        ];
+
+        let score = scorer.calculate_cumulative_score(&events);
+        assert_eq!(score.value(), 40);
+        assert_eq!(score.severity(), Severity::Medium);
     }
 }

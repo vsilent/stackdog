@@ -1,11 +1,10 @@
 //! Container management
 
-use crate::database::models::Alert;
-use crate::database::{create_alert, DbPool};
+use crate::alerting::alert::{AlertSeverity, AlertType};
+use crate::database::models::{Alert, AlertMetadata};
+use crate::database::{create_alert, get_container_alert_summary, DbPool};
 use crate::docker::client::{ContainerInfo, DockerClient};
 use anyhow::Result;
-use chrono::Utc;
-use uuid::Uuid;
 
 /// Container manager
 pub struct ContainerManager {
@@ -30,21 +29,30 @@ impl ContainerManager {
         self.docker.get_container_info(container_id).await
     }
 
+    /// Get live container stats
+    pub async fn get_container_stats(
+        &self,
+        container_id: &str,
+    ) -> Result<crate::docker::client::ContainerStats> {
+        self.docker.get_container_stats(container_id).await
+    }
+
     /// Quarantine a container
     pub async fn quarantine_container(&self, container_id: &str, reason: &str) -> Result<()> {
         // Disconnect from networks
         self.docker.quarantine_container(container_id).await?;
 
         // Create alert
-        let alert = Alert {
-            id: Uuid::new_v4().to_string(),
-            alert_type: "QuarantineApplied".to_string(),
-            severity: "High".to_string(),
-            message: format!("Container {} quarantined: {}", container_id, reason),
-            status: "New".to_string(),
-            timestamp: Utc::now().to_rfc3339(),
-            metadata: Some(format!("container_id={}", container_id)),
-        };
+        let alert = Alert::new(
+            AlertType::QuarantineApplied,
+            AlertSeverity::High,
+            format!("Container {} quarantined: {}", container_id, reason),
+        )
+        .with_metadata(
+            AlertMetadata::default()
+                .with_container_id(container_id)
+                .with_reason(reason),
+        );
 
         let _ = create_alert(&self.pool, alert).await;
 
@@ -72,22 +80,13 @@ impl ContainerManager {
         container_id: &str,
     ) -> Result<ContainerSecurityStatus> {
         let _info = self.docker.get_container_info(container_id).await?;
-
-        // Calculate risk score based on various factors
-        let risk_score = 0;
-        let threats = 0;
-        let security_state = "Secure";
-
-        // Check if running as root
-        // Check for privileged mode
-        // Check for exposed ports
-        // Check for volume mounts
+        let summary = get_container_alert_summary(&self.pool, container_id)?;
 
         Ok(ContainerSecurityStatus {
             container_id: container_id.to_string(),
-            risk_score,
-            threats,
-            security_state: security_state.to_string(),
+            risk_score: summary.risk_score(),
+            threats: summary.active_threats,
+            security_state: summary.security_state().to_string(),
         })
     }
 }

@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::events::security::SecurityEvent;
 
 /// Alert types
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AlertType {
     ThreatDetected,
     AnomalyDetected,
@@ -28,6 +28,22 @@ impl std::fmt::Display for AlertType {
             AlertType::ThresholdExceeded => write!(f, "ThresholdExceeded"),
             AlertType::QuarantineApplied => write!(f, "QuarantineApplied"),
             AlertType::SystemEvent => write!(f, "SystemEvent"),
+        }
+    }
+}
+
+impl std::str::FromStr for AlertType {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "ThreatDetected" => Ok(Self::ThreatDetected),
+            "AnomalyDetected" => Ok(Self::AnomalyDetected),
+            "RuleViolation" => Ok(Self::RuleViolation),
+            "ThresholdExceeded" => Ok(Self::ThresholdExceeded),
+            "QuarantineApplied" => Ok(Self::QuarantineApplied),
+            "SystemEvent" => Ok(Self::SystemEvent),
+            _ => Err(format!("unknown alert type: {value}")),
         }
     }
 }
@@ -54,6 +70,21 @@ impl std::fmt::Display for AlertSeverity {
     }
 }
 
+impl std::str::FromStr for AlertSeverity {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "Info" => Ok(Self::Info),
+            "Low" => Ok(Self::Low),
+            "Medium" => Ok(Self::Medium),
+            "High" => Ok(Self::High),
+            "Critical" => Ok(Self::Critical),
+            _ => Err(format!("unknown alert severity: {value}")),
+        }
+    }
+}
+
 /// Alert status
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum AlertStatus {
@@ -70,6 +101,20 @@ impl std::fmt::Display for AlertStatus {
             AlertStatus::Acknowledged => write!(f, "Acknowledged"),
             AlertStatus::Resolved => write!(f, "Resolved"),
             AlertStatus::FalsePositive => write!(f, "FalsePositive"),
+        }
+    }
+}
+
+impl std::str::FromStr for AlertStatus {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "New" => Ok(Self::New),
+            "Acknowledged" => Ok(Self::Acknowledged),
+            "Resolved" => Ok(Self::Resolved),
+            "FalsePositive" => Ok(Self::FalsePositive),
+            _ => Err(format!("unknown alert status: {value}")),
         }
     }
 }
@@ -113,7 +158,7 @@ impl Alert {
 
     /// Get alert type
     pub fn alert_type(&self) -> AlertType {
-        self.alert_type.clone()
+        self.alert_type
     }
 
     /// Get severity

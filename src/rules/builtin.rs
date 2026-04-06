@@ -3,7 +3,7 @@
 //! Pre-defined rules for common security scenarios
 
 use crate::events::security::SecurityEvent;
-use crate::events::syscall::SyscallType;
+use crate::events::syscall::{SyscallDetails, SyscallType};
 use crate::rules::rule::{Rule, RuleResult};
 
 /// Syscall allowlist rule
@@ -159,6 +159,53 @@ impl Rule for NetworkConnectionRule {
     }
 }
 
+/// SMTP connection rule
+/// Matches outbound connections to common mail submission ports.
+pub struct SmtpConnectionRule {
+    ports: Vec<u16>,
+}
+
+impl SmtpConnectionRule {
+    pub fn new() -> Self {
+        Self {
+            ports: vec![25, 465, 587, 2525],
+        }
+    }
+}
+
+impl Default for SmtpConnectionRule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Rule for SmtpConnectionRule {
+    fn evaluate(&self, event: &SecurityEvent) -> RuleResult {
+        let SecurityEvent::Syscall(syscall_event) = event else {
+            return RuleResult::NoMatch;
+        };
+
+        if syscall_event.syscall_type != SyscallType::Connect {
+            return RuleResult::NoMatch;
+        }
+
+        match syscall_event.details.as_ref() {
+            Some(SyscallDetails::Connect { dst_port, .. }) if self.ports.contains(dst_port) => {
+                RuleResult::Match
+            }
+            _ => RuleResult::NoMatch,
+        }
+    }
+
+    fn name(&self) -> &str {
+        "smtp_connection"
+    }
+
+    fn priority(&self) -> u32 {
+        20
+    }
+}
+
 /// File access rule
 /// Matches file-related syscalls
 pub struct FileAccessRule {
@@ -205,7 +252,7 @@ impl Rule for FileAccessRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::syscall::SyscallEvent;
+    use crate::events::syscall::{SyscallDetails, SyscallEvent};
     use chrono::Utc;
 
     #[test]
@@ -230,5 +277,45 @@ mod tests {
             Utc::now(),
         ));
         assert!(rule.evaluate(&event).is_match());
+    }
+
+    #[test]
+    fn test_smtp_connection_rule_matches_mail_port() {
+        let rule = SmtpConnectionRule::new();
+        let event = SecurityEvent::Syscall(
+            SyscallEvent::builder()
+                .pid(1234)
+                .uid(1000)
+                .syscall_type(SyscallType::Connect)
+                .timestamp(Utc::now())
+                .details(Some(SyscallDetails::Connect {
+                    dst_addr: Some("198.51.100.25".to_string()),
+                    dst_port: 587,
+                    family: 2,
+                }))
+                .build(),
+        );
+
+        assert!(rule.evaluate(&event).is_match());
+    }
+
+    #[test]
+    fn test_smtp_connection_rule_ignores_non_mail_port() {
+        let rule = SmtpConnectionRule::new();
+        let event = SecurityEvent::Syscall(
+            SyscallEvent::builder()
+                .pid(1234)
+                .uid(1000)
+                .syscall_type(SyscallType::Connect)
+                .timestamp(Utc::now())
+                .details(Some(SyscallDetails::Connect {
+                    dst_addr: Some("198.51.100.25".to_string()),
+                    dst_port: 443,
+                    family: 2,
+                }))
+                .build(),
+        );
+
+        assert!(rule.evaluate(&event).is_no_match());
     }
 }

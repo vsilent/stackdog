@@ -38,7 +38,7 @@ pub async fn list_sources(pool: web::Data<DbPool>) -> impl Responder {
 ///
 /// GET /api/logs/sources/{path}
 pub async fn get_source(pool: web::Data<DbPool>, path: web::Path<String>) -> impl Responder {
-    match log_sources::get_log_source_by_path(&pool, &path) {
+    match log_sources::get_log_source_by_path(&pool, &path.into_inner()) {
         Ok(Some(source)) => HttpResponse::Ok().json(source),
         Ok(None) => HttpResponse::NotFound().json(serde_json::json!({
             "error": "Log source not found"
@@ -77,7 +77,7 @@ pub async fn add_source(
 ///
 /// DELETE /api/logs/sources/{path}
 pub async fn delete_source(pool: web::Data<DbPool>, path: web::Path<String>) -> impl Responder {
-    match log_sources::delete_log_source(&pool, &path) {
+    match log_sources::delete_log_source(&pool, &path.into_inner()) {
         Ok(_) => HttpResponse::NoContent().finish(),
         Err(e) => {
             log::error!("Failed to delete log source: {}", e);
@@ -136,8 +136,8 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         web::scope("/api/logs")
             .route("/sources", web::get().to(list_sources))
             .route("/sources", web::post().to(add_source))
-            .route("/sources/{path}", web::get().to(get_source))
-            .route("/sources/{path}", web::delete().to(delete_source))
+            .route("/sources/{path:.*}", web::get().to(get_source))
+            .route("/sources/{path:.*}", web::delete().to(delete_source))
             .route("/summaries", web::get().to(list_summaries)),
     );
 }
@@ -237,6 +237,33 @@ mod tests {
     }
 
     #[actix_rt::test]
+    async fn test_get_source_with_full_filesystem_path() {
+        let pool = setup_pool();
+        let source = LogSource::new(
+            LogSourceType::CustomFile,
+            "/var/log/app.log".into(),
+            "App Log".into(),
+        );
+        log_sources::upsert_log_source(&pool, &source).unwrap();
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(pool))
+                .configure(configure_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri("/api/logs/sources//var/log/app.log")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["path_or_id"], "/var/log/app.log");
+    }
+
+    #[actix_rt::test]
     async fn test_delete_source() {
         let pool = setup_pool();
 
@@ -260,6 +287,33 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 204);
+    }
+
+    #[actix_rt::test]
+    async fn test_delete_source_with_full_filesystem_path() {
+        let pool = setup_pool();
+        let source = LogSource::new(
+            LogSourceType::CustomFile,
+            "/var/log/app.log".into(),
+            "App Log".into(),
+        );
+        log_sources::upsert_log_source(&pool, &source).unwrap();
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(pool.clone()))
+                .configure(configure_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::delete()
+            .uri("/api/logs/sources//var/log/app.log")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 204);
+
+        let stored = log_sources::get_log_source_by_path(&pool, "/var/log/app.log").unwrap();
+        assert!(stored.is_none());
     }
 
     #[actix_rt::test]

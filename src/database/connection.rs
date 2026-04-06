@@ -108,6 +108,12 @@ pub fn init_database(pool: &DbPool) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)",
         [],
     );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_alerts_container_id
+         ON alerts(json_extract(metadata, '$.container_id'))
+         WHERE json_valid(metadata)",
+        [],
+    );
 
     let _ = conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_threats_status ON threats(status)",
@@ -162,6 +168,54 @@ pub fn init_database(pool: &DbPool) -> Result<()> {
     );
     let _ = conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_log_summaries_source ON log_summaries(source_id)",
+        [],
+    );
+
+    // Create baselines table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS baselines (
+            scope TEXT PRIMARY KEY,
+            sample_count INTEGER NOT NULL,
+            mean TEXT NOT NULL,
+            stddev TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
+        [],
+    )?;
+
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_baselines_updated_at ON baselines(updated_at)",
+        [],
+    );
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ip_offenses (
+            id TEXT PRIMARY KEY,
+            ip_address TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            container_id TEXT,
+            offense_count INTEGER NOT NULL DEFAULT 1,
+            first_seen TEXT NOT NULL,
+            last_seen TEXT NOT NULL,
+            blocked_until TEXT,
+            status TEXT NOT NULL DEFAULT 'Active',
+            reason TEXT NOT NULL,
+            metadata TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ip_offenses_ip ON ip_offenses(ip_address)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ip_offenses_status ON ip_offenses(status)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ip_offenses_last_seen ON ip_offenses(last_seen)",
         [],
     );
 

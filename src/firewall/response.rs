@@ -4,9 +4,12 @@
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use std::process::Command;
 use std::sync::{Arc, RwLock};
 
 use crate::alerting::alert::Alert;
+use crate::firewall::backend::FirewallBackend;
+use crate::firewall::{IptablesBackend, NfTablesBackend};
 
 /// Response action types
 #[derive(Debug, Clone)]
@@ -30,6 +33,24 @@ pub struct ResponseAction {
 }
 
 impl ResponseAction {
+    fn quarantine_container_error(container_id: &str) -> anyhow::Error {
+        anyhow::anyhow!(
+            "Docker-based container quarantine flow is required for {} because firewall backends do not implement container-specific quarantine. Use the Docker/API quarantine path instead.",
+            container_id
+        )
+    }
+
+    fn preferred_backend() -> Result<Box<dyn FirewallBackend>> {
+        if let Ok(mut backend) = NfTablesBackend::new() {
+            backend.initialize()?;
+            return Ok(Box::new(backend));
+        }
+
+        let mut backend = IptablesBackend::new()?;
+        backend.initialize()?;
+        Ok(Box::new(backend))
+    }
+
     /// Create a new response action
     pub fn new(action_type: ResponseType, description: String) -> Self {
         Self {
@@ -84,19 +105,21 @@ impl ResponseAction {
                 Ok(())
             }
             ResponseType::BlockIP(ip) => {
-                log::info!("Would block IP: {}", ip);
-                Ok(())
+                let backend = Self::preferred_backend()?;
+                backend.block_ip(ip)
             }
             ResponseType::BlockPort(port) => {
-                log::info!("Would block port: {}", port);
-                Ok(())
+                let backend = Self::preferred_backend()?;
+                backend.block_port(*port)
             }
-            ResponseType::QuarantineContainer(id) => {
-                log::info!("Would quarantine container: {}", id);
-                Ok(())
-            }
+            ResponseType::QuarantineContainer(id) => Err(Self::quarantine_container_error(id)),
             ResponseType::KillProcess(pid) => {
-                log::info!("Would kill process: {}", pid);
+                let output = Command::new("kill")
+                    .args(["-TERM", &pid.to_string()])
+                    .output()?;
+                if !output.status.success() {
+                    anyhow::bail!("{}", String::from_utf8_lossy(&output.stderr).trim());
+                }
                 Ok(())
             }
             ResponseType::SendAlert(msg) => {
@@ -330,6 +353,7 @@ impl Default for ResponseAudit {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
 
     #[test]
     fn test_response_action_creation() {
@@ -380,5 +404,86 @@ mod tests {
 
         assert!(log.success());
         assert_eq!(log.action_name(), "test_action");
+    }
+
+    #[test]
+    fn test_quarantine_action_returns_actionable_error() {
+        let action = ResponseAction::new(
+            ResponseType::QuarantineContainer("container-1".to_string()),
+            "Quarantine".to_string(),
+        );
+
+        let error = action.execute().unwrap_err().to_string();
+        assert!(error.contains("Docker-based container quarantine flow"));
+        assert!(error.contains("container-1"));
+    }
+
+    #[test]
+    fn test_response_chain_stops_on_failure() {
+        let mut chain = ResponseChain::new("stop-on-failure");
+        chain.set_stop_on_failure(true);
+        chain.add_action(ResponseAction::new(
+            ResponseType::QuarantineContainer("container-1".to_string()),
+            "Quarantine".to_string(),
+        ));
+        chain.add_action(ResponseAction::new(
+            ResponseType::LogAction("after".to_string()),
+            "After".to_string(),
+        ));
+
+        let result = chain.execute();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_response_chain_continues_when_failure_allowed() {
+        let mut chain = ResponseChain::new("continue-on-failure");
+        chain.add_action(ResponseAction::new(
+            ResponseType::QuarantineContainer("container-1".to_string()),
+            "Quarantine".to_string(),
+        ));
+        chain.add_action(ResponseAction::new(
+            ResponseType::LogAction("after".to_string()),
+            "After".to_string(),
+        ));
+
+        let result = chain.execute();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_execute_with_retry_honors_retry_count() {
+        let mut action = ResponseAction::new(
+            ResponseType::QuarantineContainer("container-1".to_string()),
+            "Quarantine".to_string(),
+        );
+        action.set_retry_config(2, 0);
+
+        let started = Instant::now();
+        let result = action.execute_with_retry();
+
+        assert!(result.is_err());
+        assert!(started.elapsed().as_millis() < 100);
+    }
+
+    #[test]
+    fn test_response_executor_records_failed_action() {
+        let mut executor = ResponseExecutor::new().unwrap();
+        let action = ResponseAction::new(
+            ResponseType::QuarantineContainer("container-1".to_string()),
+            "Quarantine".to_string(),
+        );
+
+        let result = executor.execute(&action);
+        let log = executor.get_log();
+
+        assert!(result.is_err());
+        assert_eq!(log.len(), 1);
+        assert!(!log[0].success());
+        assert!(log[0].error().is_some());
+        assert!(log[0]
+            .error()
+            .unwrap()
+            .contains("Docker-based container quarantine flow"));
     }
 }

@@ -52,6 +52,16 @@ pub struct SniffConfig {
     pub slack_webhook: Option<String>,
     /// Generic webhook URL for alert notifications
     pub webhook_url: Option<String>,
+    /// SMTP host for email notifications
+    pub smtp_host: Option<String>,
+    /// SMTP port for email notifications
+    pub smtp_port: Option<u16>,
+    /// SMTP username / sender address for email notifications
+    pub smtp_user: Option<String>,
+    /// SMTP password for email notifications
+    pub smtp_password: Option<String>,
+    /// Email recipients for alert notifications
+    pub email_recipients: Vec<String>,
 }
 
 /// Arguments for building a SniffConfig
@@ -65,6 +75,12 @@ pub struct SniffArgs<'a> {
     pub ai_model: Option<&'a str>,
     pub ai_api_url: Option<&'a str>,
     pub slack_webhook: Option<&'a str>,
+    pub webhook_url: Option<&'a str>,
+    pub smtp_host: Option<&'a str>,
+    pub smtp_port: Option<u16>,
+    pub smtp_user: Option<&'a str>,
+    pub smtp_password: Option<&'a str>,
+    pub email_recipients: Option<&'a str>,
 }
 
 impl SniffConfig {
@@ -130,7 +146,39 @@ impl SniffConfig {
                 .slack_webhook
                 .map(|s| s.to_string())
                 .or_else(|| env::var("STACKDOG_SLACK_WEBHOOK_URL").ok()),
-            webhook_url: env::var("STACKDOG_WEBHOOK_URL").ok(),
+            webhook_url: args
+                .webhook_url
+                .map(|s| s.to_string())
+                .or_else(|| env::var("STACKDOG_WEBHOOK_URL").ok()),
+            smtp_host: args
+                .smtp_host
+                .map(|s| s.to_string())
+                .or_else(|| env::var("STACKDOG_SMTP_HOST").ok()),
+            smtp_port: args.smtp_port.or_else(|| {
+                env::var("STACKDOG_SMTP_PORT")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+            }),
+            smtp_user: args
+                .smtp_user
+                .map(|s| s.to_string())
+                .or_else(|| env::var("STACKDOG_SMTP_USER").ok()),
+            smtp_password: args
+                .smtp_password
+                .map(|s| s.to_string())
+                .or_else(|| env::var("STACKDOG_SMTP_PASSWORD").ok()),
+            email_recipients: args
+                .email_recipients
+                .map(|s| s.to_string())
+                .or_else(|| env::var("STACKDOG_EMAIL_RECIPIENTS").ok())
+                .map(|recipients| {
+                    recipients
+                        .split(',')
+                        .map(|recipient| recipient.trim().to_string())
+                        .filter(|recipient| !recipient.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
         }
     }
 }
@@ -153,6 +201,11 @@ mod tests {
         env::remove_var("STACKDOG_SNIFF_INTERVAL");
         env::remove_var("STACKDOG_SLACK_WEBHOOK_URL");
         env::remove_var("STACKDOG_WEBHOOK_URL");
+        env::remove_var("STACKDOG_SMTP_HOST");
+        env::remove_var("STACKDOG_SMTP_PORT");
+        env::remove_var("STACKDOG_SMTP_USER");
+        env::remove_var("STACKDOG_SMTP_PASSWORD");
+        env::remove_var("STACKDOG_EMAIL_RECIPIENTS");
     }
 
     #[test]
@@ -179,6 +232,12 @@ mod tests {
             ai_model: None,
             ai_api_url: None,
             slack_webhook: None,
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
         });
         assert!(!config.once);
         assert!(!config.consume);
@@ -206,6 +265,12 @@ mod tests {
             ai_model: None,
             ai_api_url: None,
             slack_webhook: None,
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
         });
 
         assert!(config.once);
@@ -232,6 +297,12 @@ mod tests {
             ai_model: None,
             ai_api_url: None,
             slack_webhook: None,
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
         });
 
         assert!(config
@@ -268,6 +339,12 @@ mod tests {
             ai_model: None,
             ai_api_url: None,
             slack_webhook: None,
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
         });
         assert_eq!(config.ai_api_url, "https://api.openai.com/v1");
         assert_eq!(config.ai_api_key, Some("sk-test123".into()));
@@ -293,6 +370,12 @@ mod tests {
             ai_model: Some("qwen2.5-coder:latest"),
             ai_api_url: None,
             slack_webhook: None,
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
         });
         // "ollama" maps to OpenAi internally (same API protocol)
         assert_eq!(config.ai_provider, AiProvider::OpenAi);
@@ -319,6 +402,12 @@ mod tests {
             ai_model: Some("llama3"),
             ai_api_url: Some("http://localhost:11434/v1"),
             slack_webhook: None,
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
         });
         // CLI args take priority over env vars
         assert_eq!(config.ai_model, "llama3");
@@ -342,6 +431,12 @@ mod tests {
             ai_model: None,
             ai_api_url: None,
             slack_webhook: Some("https://hooks.slack.com/services/T/B/xxx"),
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
         });
         assert_eq!(
             config.slack_webhook.as_deref(),
@@ -370,6 +465,12 @@ mod tests {
             ai_model: None,
             ai_api_url: None,
             slack_webhook: None,
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
         });
         assert_eq!(
             config.slack_webhook.as_deref(),
@@ -398,10 +499,70 @@ mod tests {
             ai_model: None,
             ai_api_url: None,
             slack_webhook: Some("https://hooks.slack.com/services/T/B/cli"),
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
         });
         assert_eq!(
             config.slack_webhook.as_deref(),
             Some("https://hooks.slack.com/services/T/B/cli")
+        );
+
+        clear_sniff_env();
+    }
+
+    #[test]
+    fn test_notification_channels_from_env() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        clear_sniff_env();
+        env::set_var(
+            "STACKDOG_WEBHOOK_URL",
+            "https://example.test/hooks/stackdog",
+        );
+        env::set_var("STACKDOG_SMTP_HOST", "smtp.example.com");
+        env::set_var("STACKDOG_SMTP_PORT", "2525");
+        env::set_var("STACKDOG_SMTP_USER", "alerts@example.com");
+        env::set_var("STACKDOG_SMTP_PASSWORD", "secret");
+        env::set_var(
+            "STACKDOG_EMAIL_RECIPIENTS",
+            "soc@example.com, oncall@example.com",
+        );
+
+        let config = SniffConfig::from_env_and_args(SniffArgs {
+            once: false,
+            consume: false,
+            output: "./stackdog-logs/",
+            sources: None,
+            interval: 30,
+            ai_provider: None,
+            ai_model: None,
+            ai_api_url: None,
+            slack_webhook: None,
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
+        });
+
+        assert_eq!(
+            config.webhook_url.as_deref(),
+            Some("https://example.test/hooks/stackdog")
+        );
+        assert_eq!(config.smtp_host.as_deref(), Some("smtp.example.com"));
+        assert_eq!(config.smtp_port, Some(2525));
+        assert_eq!(config.smtp_user.as_deref(), Some("alerts@example.com"));
+        assert_eq!(config.smtp_password.as_deref(), Some("secret"));
+        assert_eq!(
+            config.email_recipients,
+            vec![
+                "soc@example.com".to_string(),
+                "oncall@example.com".to_string()
+            ]
         );
 
         clear_sniff_env();

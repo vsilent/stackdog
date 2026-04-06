@@ -45,6 +45,19 @@ pub struct IptablesBackend {
 }
 
 impl IptablesBackend {
+    fn run_iptables(&self, args: &[&str], context: &str) -> Result<()> {
+        let output = Command::new("iptables")
+            .args(args)
+            .output()
+            .context(context.to_string())?;
+
+        if !output.status.success() {
+            anyhow::bail!("{}", String::from_utf8_lossy(&output.stderr).trim());
+        }
+
+        Ok(())
+    }
+
     /// Create a new iptables backend
     pub fn new() -> Result<Self> {
         #[cfg(target_os = "linux")]
@@ -193,37 +206,47 @@ impl FirewallBackend for IptablesBackend {
     }
 
     fn block_ip(&self, ip: &str) -> Result<()> {
-        let chain = IptChain::new("filter", "INPUT");
-        let rule = IptRule::new(&chain, format!("-s {} -j DROP", ip));
-        self.add_rule(&rule)
+        self.run_iptables(
+            &["-I", "INPUT", "-s", ip, "-j", "DROP"],
+            "Failed to block IP with iptables",
+        )
     }
 
     fn unblock_ip(&self, ip: &str) -> Result<()> {
-        let chain = IptChain::new("filter", "INPUT");
-        let rule = IptRule::new(&chain, format!("-s {} -j DROP", ip));
-        self.delete_rule(&rule)
+        self.run_iptables(
+            &["-D", "INPUT", "-s", ip, "-j", "DROP"],
+            "Failed to unblock IP with iptables",
+        )
     }
 
     fn block_port(&self, port: u16) -> Result<()> {
-        let chain = IptChain::new("filter", "INPUT");
-        let rule = IptRule::new(&chain, format!("-p tcp --dport {} -j DROP", port));
-        self.add_rule(&rule)
+        let port = port.to_string();
+        self.run_iptables(
+            &["-I", "OUTPUT", "-p", "tcp", "--dport", &port, "-j", "DROP"],
+            "Failed to block port with iptables",
+        )
     }
 
     fn unblock_port(&self, port: u16) -> Result<()> {
-        let chain = IptChain::new("filter", "INPUT");
-        let rule = IptRule::new(&chain, format!("-p tcp --dport {} -j DROP", port));
-        self.delete_rule(&rule)
+        let port = port.to_string();
+        self.run_iptables(
+            &["-D", "OUTPUT", "-p", "tcp", "--dport", &port, "-j", "DROP"],
+            "Failed to unblock port with iptables",
+        )
     }
 
     fn block_container(&self, container_id: &str) -> Result<()> {
-        log::info!("Would block container via iptables: {}", container_id);
-        Ok(())
+        anyhow::bail!(
+            "Container-specific iptables blocking is not implemented yet for {}",
+            container_id
+        )
     }
 
     fn unblock_container(&self, container_id: &str) -> Result<()> {
-        log::info!("Would unblock container via iptables: {}", container_id);
-        Ok(())
+        anyhow::bail!(
+            "Container-specific iptables unblocking is not implemented yet for {}",
+            container_id
+        )
     }
 
     fn name(&self) -> &str {
@@ -247,5 +270,12 @@ mod tests {
         let chain = IptChain::new("filter", "INPUT");
         let rule = IptRule::new(&chain, "-p tcp --dport 22 -j DROP");
         assert_eq!(rule.rule_spec, "-p tcp --dport 22 -j DROP");
+    }
+
+    #[test]
+    fn test_block_container_is_explicitly_unsupported() {
+        let backend = IptablesBackend { available: true };
+        let result = backend.block_container("container-1");
+        assert!(result.is_err());
     }
 }
