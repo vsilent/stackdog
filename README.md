@@ -71,6 +71,59 @@ cargo run
 cargo run -- serve
 ```
 
+### Run with Docker
+
+Use the published container image for the quickest way to explore the API.
+If you are validating a fresh branch or waiting for Docker Hub to pick up the latest CI build,
+prefer the local-image flow below so you know you are running your current checkout:
+
+```bash
+docker volume create stackdog-data
+
+docker run --rm -it \
+  --name stackdog \
+  -p 5000:5000 \
+  -e APP_HOST=0.0.0.0 \
+  -e APP_PORT=5000 \
+  -e DATABASE_URL=/data/stackdog.db \
+  -v stackdog-data:/data \
+  trydirect/stackdog:latest
+```
+
+Then open another shell and hit the API:
+
+```bash
+curl http://localhost:5000/api/security/status
+curl http://localhost:5000/api/threats
+curl http://localhost:5000/api/alerts
+```
+
+To try log sniffing inside Docker against host log files, mount them read-only and run the
+`sniff` subcommand instead of the default HTTP server:
+
+```bash
+docker run --rm -it \
+  -e DATABASE_URL=/tmp/stackdog.db \
+  -v /var/log:/host-logs:ro \
+  trydirect/stackdog:latest \
+  sniff --once --sources /host-logs/auth.log
+```
+
+If you want to test your current checkout instead of the latest published image:
+
+```bash
+docker build -f docker/local/Dockerfile -t stackdog-local .
+
+docker run --rm -it \
+  --name stackdog-local \
+  -p 5000:5000 \
+  -e APP_HOST=0.0.0.0 \
+  -e APP_PORT=5000 \
+  -e DATABASE_URL=/data/stackdog.db \
+  -v stackdog-data:/data \
+  stackdog-local
+```
+
 ### Log Sniffing
 
 ```bash
@@ -120,11 +173,12 @@ for event in events {
 ### Docker Development
 
 ```bash
-# Start development environment
-docker-compose up -d
+# Run the published image
+docker run --rm -it -p 5000:5000 trydirect/stackdog:latest
 
-# View logs
-docker-compose logs -f stackdog
+# Or, for the most reliable test of your current code, build and run your checkout
+docker build -f docker/local/Dockerfile -t stackdog-local .
+docker run --rm -it -p 5000:5000 stackdog-local
 ```
 
 ---
