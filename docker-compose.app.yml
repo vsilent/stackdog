@@ -2,7 +2,7 @@ services:
   stackdog:
     build:
       context: .
-      dockerfile: docker/local/Dockerfile
+      dockerfile: docker/backend/Dockerfile
     command: ["serve"]
     container_name: stackdog
     environment:

@@ -112,7 +112,7 @@ docker run --rm -it \
 If you want to test your current checkout instead of the latest published image:
 
 ```bash
-docker build -f docker/local/Dockerfile -t stackdog-local .
+docker build -f docker/backend/Dockerfile -t stackdog-local .
 
 docker run --rm -it \
   --name stackdog-local \
@@ -202,7 +202,7 @@ for event in events {
 docker run --rm -it -p 5000:5000 trydirect/stackdog:latest
 
 # Or, for the most reliable test of your current code, build and run your checkout
-docker build -f docker/local/Dockerfile -t stackdog-local .
+docker build -f docker/backend/Dockerfile -t stackdog-local .
 docker run --rm -it -p 5000:5000 stackdog-local
 
 # Or run backend + UI together
