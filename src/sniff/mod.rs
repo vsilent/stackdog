@@ -411,7 +411,7 @@ mod tests {
             output: "./stackdog-logs/",
             sources: None,
             interval: 30,
-            ai_provider: None,
+            ai_provider: Some("candle"),
             ai_model: None,
             ai_api_url: None,
             slack_webhook: None,
