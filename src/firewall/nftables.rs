@@ -2,10 +2,10 @@
 //!
 //! Manages nftables firewall rules
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use std::process::Command;
 
-use crate::firewall::backend::{FirewallBackend, FirewallRule, FirewallTable, FirewallChain};
+use crate::firewall::backend::FirewallBackend;
 
 /// nftables table
 #[derive(Debug, Clone)]
@@ -21,9 +21,11 @@ impl NfTable {
             name: name.into(),
         }
     }
-    
-    fn to_string(&self) -> String {
-        format!("{} {}", self.family, self.name)
+}
+
+impl std::fmt::Display for NfTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.family, self.name)
     }
 }
 
@@ -67,6 +69,76 @@ pub struct NfTablesBackend {
 }
 
 impl NfTablesBackend {
+    fn run_nft(&self, args: &[&str], context: &str) -> Result<()> {
+        let output = Command::new("nft")
+            .args(args)
+            .output()
+            .context(context.to_string())?;
+
+        if !output.status.success() {
+            anyhow::bail!("{}", String::from_utf8_lossy(&output.stderr).trim());
+        }
+
+        Ok(())
+    }
+
+    fn base_table(&self) -> NfTable {
+        NfTable::new("inet", "stackdog")
+    }
+
+    fn ensure_filter_table(&self) -> Result<()> {
+        let table = self.base_table();
+        let _ = self.run_nft(
+            &["add", "table", &table.family, &table.name],
+            "Failed to ensure nftables table",
+        );
+        let _ = self.run_nft(
+            &[
+                "add",
+                "chain",
+                &table.family,
+                &table.name,
+                "input",
+                "{",
+                "type",
+                "filter",
+                "hook",
+                "input",
+                "priority",
+                "0",
+                ";",
+                "policy",
+                "accept",
+                ";",
+                "}",
+            ],
+            "Failed to ensure nftables input chain",
+        );
+        let _ = self.run_nft(
+            &[
+                "add",
+                "chain",
+                &table.family,
+                &table.name,
+                "output",
+                "{",
+                "type",
+                "filter",
+                "hook",
+                "output",
+                "priority",
+                "0",
+                ";",
+                "policy",
+                "accept",
+                ";",
+                "}",
+            ],
+            "Failed to ensure nftables output chain",
+        );
+        Ok(())
+    }
+
     /// Create a new nftables backend
     pub fn new() -> Result<Self> {
         #[cfg(target_os = "linux")]
@@ -77,131 +149,141 @@ impl NfTablesBackend {
                 .output()
                 .map(|o| o.status.success())
                 .unwrap_or(false);
-            
+
             if !available {
                 anyhow::bail!("nft command not available");
             }
-            
+
             Ok(Self { available: true })
         }
-        
+
         #[cfg(not(target_os = "linux"))]
         {
             anyhow::bail!("nftables only available on Linux");
         }
     }
-    
+
     /// Create a table
     pub fn create_table(&self, table: &NfTable) -> Result<()> {
+        let table_str = table.to_string();
         let output = Command::new("nft")
-            .args(&["add", "table", &table.to_string()])
+            .args(["add", "table", &table_str])
             .output()
             .context("Failed to create nftables table")?;
-        
+
         if !output.status.success() {
-            anyhow::bail!("Failed to create table: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!(
+                "Failed to create table: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
-        
+
         Ok(())
     }
-    
+
     /// Delete a table
     pub fn delete_table(&self, table: &NfTable) -> Result<()> {
+        let table_str = table.to_string();
         let output = Command::new("nft")
-            .args(&["delete", "table", &table.to_string()])
+            .args(["delete", "table", &table_str])
             .output()
             .context("Failed to delete nftables table")?;
-        
+
         if !output.status.success() {
-            anyhow::bail!("Failed to delete table: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!(
+                "Failed to delete table: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
-        
+
         Ok(())
     }
-    
+
     /// Create a chain
     pub fn create_chain(&self, chain: &NfChain) -> Result<()> {
         let cmd = format!(
             "add chain {} {} {{ type {} hook input priority 0; }}",
-            chain.table.to_string(),
-            chain.name,
-            chain.chain_type
+            chain.table, chain.name, chain.chain_type
         );
-        
+
         let output = Command::new("nft")
-            .args(&["-c", &cmd])
+            .args(["-c", &cmd])
             .output()
             .context("Failed to create nftables chain")?;
-        
+
         if !output.status.success() {
-            anyhow::bail!("Failed to create chain: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!(
+                "Failed to create chain: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
-        
+
         Ok(())
     }
-    
+
     /// Delete a chain
     pub fn delete_chain(&self, chain: &NfChain) -> Result<()> {
-        let cmd = format!(
-            "delete chain {} {}",
-            chain.table.to_string(),
-            chain.name
-        );
-        
+        let cmd = format!("delete chain {} {}", chain.table, chain.name);
+
         let output = Command::new("nft")
-            .args(&["-c", &cmd])
+            .args(["-c", &cmd])
             .output()
             .context("Failed to delete nftables chain")?;
-        
+
         if !output.status.success() {
-            anyhow::bail!("Failed to delete chain: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!(
+                "Failed to delete chain: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
-        
+
         Ok(())
     }
-    
+
     /// Add a rule
     pub fn add_rule(&self, rule: &NfRule) -> Result<()> {
         let cmd = format!(
             "add rule {} {} {}",
-            rule.chain.table.to_string(),
-            rule.chain.name,
-            rule.rule_spec
+            rule.chain.table, rule.chain.name, rule.rule_spec
         );
-        
+
         let output = Command::new("nft")
-            .args(&["-c", &cmd])
+            .args(["-c", &cmd])
             .output()
             .context("Failed to add nftables rule")?;
-        
+
         if !output.status.success() {
-            anyhow::bail!("Failed to add rule: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!(
+                "Failed to add rule: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
-        
+
         Ok(())
     }
-    
+
     /// Delete a rule
     pub fn delete_rule(&self, rule: &NfRule) -> Result<()> {
         let cmd = format!(
             "delete rule {} {} {}",
-            rule.chain.table.to_string(),
-            rule.chain.name,
-            rule.rule_spec
+            rule.chain.table, rule.chain.name, rule.rule_spec
         );
-        
+
         let output = Command::new("nft")
-            .args(&["-c", &cmd])
+            .args(["-c", &cmd])
             .output()
             .context("Failed to delete nftables rule")?;
-        
+
         if !output.status.success() {
-            anyhow::bail!("Failed to delete rule: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!(
+                "Failed to delete rule: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
-        
+
         Ok(())
     }
-    
+
     /// Batch add multiple rules
     pub fn batch_add_rules(&self, rules: &[NfRule]) -> Result<()> {
         for rule in rules {
@@ -209,47 +291,45 @@ impl NfTablesBackend {
         }
         Ok(())
     }
-    
+
     /// Flush a chain
     pub fn flush_chain(&self, chain: &NfChain) -> Result<()> {
-        let cmd = format!(
-            "flush chain {} {}",
-            chain.table.to_string(),
-            chain.name
-        );
-        
+        let cmd = format!("flush chain {} {}", chain.table, chain.name);
+
         let output = Command::new("nft")
-            .args(&["-c", &cmd])
+            .args(["-c", &cmd])
             .output()
             .context("Failed to flush nftables chain")?;
-        
+
         if !output.status.success() {
-            anyhow::bail!("Failed to flush chain: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!(
+                "Failed to flush chain: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
-        
+
         Ok(())
     }
-    
+
     /// List rules in a chain
     pub fn list_rules(&self, chain: &NfChain) -> Result<Vec<String>> {
-        let cmd = format!(
-            "list chain {} {}",
-            chain.table.to_string(),
-            chain.name
-        );
-        
+        let cmd = format!("list chain {} {}", chain.table, chain.name);
+
         let output = Command::new("nft")
-            .args(&["-c", &cmd])
+            .args(["-c", &cmd])
             .output()
             .context("Failed to list nftables rules")?;
-        
+
         if !output.status.success() {
-            anyhow::bail!("Failed to list rules: {}", String::from_utf8_lossy(&output.stderr));
+            anyhow::bail!(
+                "Failed to list rules: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         }
-        
+
         let stdout = String::from_utf8_lossy(&output.stdout);
         let rules: Vec<String> = stdout.lines().map(|s| s.to_string()).collect();
-        
+
         Ok(rules)
     }
 }
@@ -258,42 +338,67 @@ impl FirewallBackend for NfTablesBackend {
     fn initialize(&mut self) -> Result<()> {
         Ok(())
     }
-    
+
     fn is_available(&self) -> bool {
         self.available
     }
-    
+
     fn block_ip(&self, ip: &str) -> Result<()> {
-        // Implementation would add nftables rule to block IP
-        log::info!("Would block IP: {}", ip);
-        Ok(())
+        self.ensure_filter_table()?;
+        self.run_nft(
+            &[
+                "add", "rule", "inet", "stackdog", "input", "ip", "saddr", ip, "drop",
+            ],
+            "Failed to block IP with nftables",
+        )
     }
-    
+
     fn unblock_ip(&self, ip: &str) -> Result<()> {
-        log::info!("Would unblock IP: {}", ip);
-        Ok(())
+        self.ensure_filter_table()?;
+        self.run_nft(
+            &[
+                "delete", "rule", "inet", "stackdog", "input", "ip", "saddr", ip, "drop",
+            ],
+            "Failed to unblock IP with nftables",
+        )
     }
-    
+
     fn block_port(&self, port: u16) -> Result<()> {
-        log::info!("Would block port: {}", port);
-        Ok(())
+        self.ensure_filter_table()?;
+        let port = port.to_string();
+        self.run_nft(
+            &[
+                "add", "rule", "inet", "stackdog", "output", "tcp", "dport", &port, "drop",
+            ],
+            "Failed to block port with nftables",
+        )
     }
-    
+
     fn unblock_port(&self, port: u16) -> Result<()> {
-        log::info!("Would unblock port: {}", port);
-        Ok(())
+        self.ensure_filter_table()?;
+        let port = port.to_string();
+        self.run_nft(
+            &[
+                "delete", "rule", "inet", "stackdog", "output", "tcp", "dport", &port, "drop",
+            ],
+            "Failed to unblock port with nftables",
+        )
     }
-    
+
     fn block_container(&self, container_id: &str) -> Result<()> {
-        log::info!("Would block container: {}", container_id);
-        Ok(())
+        anyhow::bail!(
+            "Container-specific nftables blocking is not implemented yet for {}",
+            container_id
+        )
     }
-    
+
     fn unblock_container(&self, container_id: &str) -> Result<()> {
-        log::info!("Would unblock container: {}", container_id);
-        Ok(())
+        anyhow::bail!(
+            "Container-specific nftables unblocking is not implemented yet for {}",
+            container_id
+        )
     }
-    
+
     fn name(&self) -> &str {
         "nftables"
     }
@@ -302,19 +407,26 @@ impl FirewallBackend for NfTablesBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_nf_table_creation() {
         let table = NfTable::new("inet", "stackdog_test");
         assert_eq!(table.family, "inet");
         assert_eq!(table.name, "stackdog_test");
     }
-    
+
     #[test]
     fn test_nf_chain_creation() {
         let table = NfTable::new("inet", "stackdog_test");
         let chain = NfChain::new(&table, "input", "filter");
         assert_eq!(chain.name, "input");
         assert_eq!(chain.chain_type, "filter");
+    }
+
+    #[test]
+    fn test_block_container_is_explicitly_unsupported() {
+        let backend = NfTablesBackend { available: true };
+        let result = backend.block_container("container-1");
+        assert!(result.is_err());
     }
 }

@@ -7,7 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-04-07
+
+### Fixed
+
+- **CLI startup robustness** — `.env` loading is now non-fatal.
+  - `stackdog --help` and other commands no longer panic when `.env` is missing or contains malformed lines.
+  - Stackdog now logs a warning and continues with existing environment variables.
+
+- **Installer release resolution** — `install.sh` now handles missing `/releases/latest` responses gracefully.
+  - Falls back to the most recent release entry when no stable "latest" release is available.
+  - Improves error messaging and updates install examples to use the `main` branch script URL.
+
 ### Added
+
+- **Expanded detector framework** with additional log-driven detection coverage.
+  - Reverse shell, sensitive file access, cloud metadata / SSRF, exfiltration chain, and secret leakage detectors.
+  - file integrity monitoring with SQLite-backed baselines via `STACKDOG_FIM_PATHS`.
+  - configuration assessment via `STACKDOG_SCA_PATHS`.
+  - package inventory heuristics via `STACKDOG_PACKAGE_INVENTORY_PATHS`.
+  - Docker posture audits for privileged mode, host namespaces, dangerous capabilities, Docker socket mounts, and writable sensitive mounts.
+
+- **Improved syslog ingestion**
+  - RFC3164 and RFC5424 parsing in file-based log ingestion for cleaner timestamps and normalized message bodies.
 
 #### Log Sniffing & Analysis (`stackdog sniff`)
 - **CLI Subcommands** — Multi-mode binary with `stackdog serve` and `stackdog sniff`
@@ -66,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactored `main.rs` to dispatch `serve`/`sniff` subcommands via clap
 - Added `events`, `rules`, `alerting`, `models` modules to binary crate
 - Updated `.env.sample` with `STACKDOG_LOG_SOURCES`, `STACKDOG_AI_*` config vars
+- Version metadata updated to `0.2.2` across Cargo, the web package manifest, and current release documentation.
 
 ### Testing
 

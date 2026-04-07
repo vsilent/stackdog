@@ -1,17 +1,13 @@
 //! Alerts API endpoints
 
+use crate::api::websocket::{broadcast_event, broadcast_stats, WebSocketHubHandle};
+use crate::database::{
+    create_sample_alert, get_alert_stats as db_get_alert_stats, list_alerts as db_list_alerts,
+    update_alert_status, AlertFilter, DbPool,
+};
+use crate::models::api::alerts::AlertResponse;
 use actix_web::{web, HttpResponse, Responder};
 use serde::Deserialize;
-use crate::database::{
-    DbPool,
-    list_alerts as db_list_alerts,
-    get_alert_stats as db_get_alert_stats,
-    update_alert_status,
-    create_sample_alert,
-    AlertFilter,
-};
-use uuid::Uuid;
-use chrono::Utc;
 
 /// Query parameters for alert filtering
 #[derive(Debug, Deserialize)]
@@ -21,19 +17,21 @@ pub struct AlertQuery {
 }
 
 /// Get all alerts
-/// 
+///
 /// GET /api/alerts
-pub async fn get_alerts(
-    pool: web::Data<DbPool>,
-    query: web::Query<AlertQuery>,
-) -> impl Responder {
+pub async fn get_alerts(pool: web::Data<DbPool>, query: web::Query<AlertQuery>) -> impl Responder {
     let filter = AlertFilter {
         severity: query.severity.clone(),
         status: query.status.clone(),
     };
-    
+
     match db_list_alerts(&pool, filter).await {
-        Ok(alerts) => HttpResponse::Ok().json(alerts),
+        Ok(alerts) => HttpResponse::Ok().json(
+            alerts
+                .into_iter()
+                .map(AlertResponse::from)
+                .collect::<Vec<_>>(),
+        ),
         Err(e) => {
             log::error!("Failed to list alerts: {}", e);
             HttpResponse::InternalServerError().json(serde_json::json!({
@@ -44,7 +42,7 @@ pub async fn get_alerts(
 }
 
 /// Get alert statistics
-/// 
+///
 /// GET /api/alerts/stats
 pub async fn get_alert_stats(pool: web::Data<DbPool>) -> impl Responder {
     match db_get_alert_stats(&pool).await {
@@ -52,7 +50,8 @@ pub async fn get_alert_stats(pool: web::Data<DbPool>) -> impl Responder {
             "total_count": stats.total_count,
             "new_count": stats.new_count,
             "acknowledged_count": stats.acknowledged_count,
-            "resolved_count": stats.resolved_count
+            "resolved_count": stats.resolved_count,
+            "false_positive_count": stats.false_positive_count
         })),
         Err(e) => {
             log::error!("Failed to get alert stats: {}", e);
@@ -61,24 +60,36 @@ pub async fn get_alert_stats(pool: web::Data<DbPool>) -> impl Responder {
                 "total_count": 0,
                 "new_count": 0,
                 "acknowledged_count": 0,
-                "resolved_count": 0
+                "resolved_count": 0,
+                "false_positive_count": 0
             }))
         }
     }
 }
 
 /// Acknowledge an alert
-/// 
+///
 /// POST /api/alerts/:id/acknowledge
 pub async fn acknowledge_alert(
     pool: web::Data<DbPool>,
+    hub: web::Data<WebSocketHubHandle>,
     path: web::Path<String>,
 ) -> impl Responder {
     let alert_id = path.into_inner();
-    
+
     match update_alert_status(&pool, &alert_id, "Acknowledged").await {
         Ok(()) => {
             log::info!("Acknowledged alert: {}", alert_id);
+            broadcast_event(
+                hub.get_ref(),
+                "alert:updated",
+                serde_json::json!({
+                    "id": alert_id,
+                    "status": "Acknowledged"
+                }),
+            )
+            .await;
+            let _ = broadcast_stats(hub.get_ref(), &pool).await;
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
                 "message": format!("Alert {} acknowledged", alert_id)
@@ -94,7 +105,7 @@ pub async fn acknowledge_alert(
 }
 
 /// Resolve an alert
-/// 
+///
 /// POST /api/alerts/:id/resolve
 #[derive(Debug, Deserialize)]
 pub struct ResolveRequest {
@@ -103,15 +114,27 @@ pub struct ResolveRequest {
 
 pub async fn resolve_alert(
     pool: web::Data<DbPool>,
+    hub: web::Data<WebSocketHubHandle>,
     path: web::Path<String>,
     body: web::Json<ResolveRequest>,
 ) -> impl Responder {
     let alert_id = path.into_inner();
     let _note = body.note.clone().unwrap_or_default();
-    
+
     match update_alert_status(&pool, &alert_id, "Resolved").await {
         Ok(()) => {
             log::info!("Resolved alert {}: {}", alert_id, _note);
+            broadcast_event(
+                hub.get_ref(),
+                "alert:updated",
+                serde_json::json!({
+                    "id": alert_id,
+                    "status": "Resolved",
+                    "note": _note
+                }),
+            )
+            .await;
+            let _ = broadcast_stats(hub.get_ref(), &pool).await;
             HttpResponse::Ok().json(serde_json::json!({
                 "success": true,
                 "message": format!("Alert {} resolved", alert_id)
@@ -127,18 +150,36 @@ pub async fn resolve_alert(
 }
 
 /// Seed database with sample alerts (for testing)
-pub async fn seed_sample_alerts(pool: web::Data<DbPool>) -> impl Responder {
+pub async fn seed_sample_alerts(
+    pool: web::Data<DbPool>,
+    hub: web::Data<WebSocketHubHandle>,
+) -> impl Responder {
     use crate::database::create_alert;
-    
+
     let mut created = Vec::new();
-    
+    let mut last_alert = None;
+
     for i in 0..5 {
         let alert = create_sample_alert();
         if create_alert(&pool, alert).await.is_ok() {
             created.push(i);
+            last_alert = Some(i);
         }
     }
-    
+
+    if !created.is_empty() {
+        broadcast_event(
+            hub.get_ref(),
+            "alert:created",
+            serde_json::json!({
+                "created": created.len(),
+                "last_index": last_alert
+            }),
+        )
+        .await;
+        let _ = broadcast_stats(hub.get_ref(), &pool).await;
+    }
+
     HttpResponse::Ok().json(serde_json::json!({
         "created": created.len(),
         "message": "Sample alerts created"
@@ -153,26 +194,24 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             .route("/stats", web::get().to(get_alert_stats))
             .route("/{id}/acknowledge", web::post().to(acknowledge_alert))
             .route("/{id}/resolve", web::post().to(resolve_alert))
-            .route("/seed", web::post().to(seed_sample_alerts)) // For testing
+            .route("/seed", web::post().to(seed_sample_alerts)), // For testing
     );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{test, App};
     use crate::database::create_pool;
+    use actix_web::{test, App};
 
     #[actix_rt::test]
     async fn test_get_alerts_empty() {
         let pool = create_pool(":memory:").unwrap();
+        crate::database::init_database(&pool).unwrap();
         let pool_data = web::Data::new(pool);
-        
-        let app = test::init_service(
-            App::new()
-                .app_data(pool_data)
-                .configure(configure_routes)
-        ).await;
+
+        let app =
+            test::init_service(App::new().app_data(pool_data).configure(configure_routes)).await;
 
         let req = test::TestRequest::get().uri("/api/alerts").to_request();
         let resp = test::call_service(&app, req).await;

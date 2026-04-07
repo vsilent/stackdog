@@ -15,14 +15,18 @@ const mockContainers = [
     securityStatus: {
       state: 'Secure' as const,
       threats: 0,
-      vulnerabilities: 0,
-      lastScan: new Date().toISOString(),
+      vulnerabilities: null,
+      lastScan: null,
     },
     riskScore: 10,
     networkActivity: {
-      inboundConnections: 5,
-      outboundConnections: 3,
-      blockedConnections: 0,
+      inboundConnections: null,
+      outboundConnections: null,
+      blockedConnections: null,
+      receivedBytes: 1024,
+      transmittedBytes: 2048,
+      receivedPackets: 5,
+      transmittedPackets: 3,
       suspiciousActivity: false,
     },
     createdAt: new Date().toISOString(),
@@ -35,14 +39,18 @@ const mockContainers = [
     securityStatus: {
       state: 'AtRisk' as const,
       threats: 2,
-      vulnerabilities: 1,
-      lastScan: new Date().toISOString(),
+      vulnerabilities: null,
+      lastScan: null,
     },
     riskScore: 65,
     networkActivity: {
-      inboundConnections: 10,
-      outboundConnections: 5,
-      blockedConnections: 2,
+      inboundConnections: null,
+      outboundConnections: null,
+      blockedConnections: null,
+      receivedBytes: 4096,
+      transmittedBytes: 8192,
+      receivedPackets: 10,
+      transmittedPackets: 5,
       suspiciousActivity: true,
     },
     createdAt: new Date().toISOString(),
@@ -51,6 +59,7 @@ const mockContainers = [
 
 describe('ContainerList Component', () => {
   beforeEach(() => {
+    jest.clearAllMocks();
     (apiService.getContainers as jest.Mock).mockResolvedValue(mockContainers);
   });
 
@@ -67,12 +76,10 @@ describe('ContainerList Component', () => {
   test('shows security status per container', async () => {
     render(<ContainerList />);
 
-    await waitFor(() => {
-      expect(screen.getByText('web-server')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('web-server')).toBeInTheDocument();
 
     expect(screen.getByText('Secure')).toBeInTheDocument();
-    expect(screen.getByText('At Risk')).toBeInTheDocument();
+    expect(screen.getByText('AtRisk')).toBeInTheDocument();
   });
 
   test('displays risk scores', async () => {
@@ -91,11 +98,9 @@ describe('ContainerList Component', () => {
 
     render(<ContainerList />);
 
-    await waitFor(() => {
-      expect(screen.getByText('database')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('database')).toBeInTheDocument();
 
-    const quarantineButton = screen.getByText('Quarantine');
+    const quarantineButton = screen.getAllByText('Quarantine')[1];
     fireEvent.click(quarantineButton);
 
     // Should show confirmation modal
@@ -135,17 +140,37 @@ describe('ContainerList Component', () => {
     });
   });
 
+  test('shows release action when security state is quarantined', async () => {
+    const quarantinedBySecurityState = {
+      ...mockContainers[0],
+      status: 'Running' as const,
+      securityStatus: {
+        ...mockContainers[0].securityStatus,
+        state: 'Quarantined' as const,
+      },
+    };
+
+    (apiService.getContainers as jest.Mock).mockResolvedValue([quarantinedBySecurityState]);
+
+    render(<ContainerList />);
+
+    expect(await screen.findByText('web-server')).toBeInTheDocument();
+    expect(screen.getAllByText('Quarantined').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('Release')).toBeInTheDocument();
+    expect(screen.queryByText('Quarantine')).not.toBeInTheDocument();
+  });
+
   test('filters by status', async () => {
     render(<ContainerList />);
 
-    await waitFor(() => {
-      expect(screen.getByText('web-server')).toBeInTheDocument();
-    });
+    expect(await screen.findByText('web-server')).toBeInTheDocument();
 
     const statusFilter = screen.getByLabelText('Filter by status');
     fireEvent.change(statusFilter, { target: { value: 'Running' } });
 
-    // Should only show Running containers
+    await waitFor(() => {
+      expect(apiService.getContainers).toHaveBeenCalledTimes(2);
+    });
     expect(screen.getByText('web-server')).toBeInTheDocument();
     expect(screen.getByText('database')).toBeInTheDocument();
   });
@@ -158,8 +183,8 @@ describe('ContainerList Component', () => {
     });
 
     // Should show network activity details
-    expect(screen.getByText('10')).toBeInTheDocument(); // Inbound
-    expect(screen.getByText('5')).toBeInTheDocument(); // Outbound
-    expect(screen.getByText('2')).toBeInTheDocument(); // Blocked
+    expect(screen.getByText(/10 pkts/)).toBeInTheDocument();
+    expect(screen.getAllByText(/5 pkts/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/n\/a/).length).toBeGreaterThan(0);
   });
 });
