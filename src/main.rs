@@ -203,6 +203,18 @@ async fn run_sniff(config: sniff::config::SniffConfig) -> io::Result<()> {
     info!("Consume: {}", config.consume);
     info!("Output: {}", config.output_dir.display());
     info!("Interval: {}s", config.interval_secs);
+    if !config.integrity_paths.is_empty() {
+        info!("FIM Paths: {}", config.integrity_paths.len());
+    }
+    if !config.config_assessment_paths.is_empty() {
+        info!("SCA Paths: {}", config.config_assessment_paths.len());
+    }
+    if !config.package_inventory_paths.is_empty() {
+        info!(
+            "Package Inventories: {}",
+            config.package_inventory_paths.len()
+        );
+    }
     info!("AI Provider: {:?}", config.ai_provider);
     info!("AI Model: {}", config.ai_model);
     info!("AI API URL: {}", config.ai_api_url);

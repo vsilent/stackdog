@@ -93,6 +93,63 @@ impl DockerClient {
         })
     }
 
+    /// Get posture information by ID for detector-backed audits
+    pub async fn get_container_posture(
+        &self,
+        container_id: &str,
+    ) -> Result<crate::detectors::ContainerPosture> {
+        let inspect = self
+            .client
+            .inspect_container(container_id, None::<InspectContainerOptions>)
+            .await
+            .context("Failed to inspect container")?;
+
+        let config = inspect.config.unwrap_or_default();
+        let host_config = inspect.host_config.unwrap_or_default();
+
+        Ok(crate::detectors::ContainerPosture {
+            container_id: container_id.to_string(),
+            name: inspect
+                .name
+                .unwrap_or_else(|| container_id[..12].to_string())
+                .trim_start_matches('/')
+                .to_string(),
+            image: config.image.unwrap_or_else(|| "unknown".to_string()),
+            privileged: host_config.privileged.unwrap_or(false),
+            network_mode: host_config.network_mode.filter(|value| !value.is_empty()),
+            pid_mode: host_config.pid_mode.filter(|value| !value.is_empty()),
+            cap_add: host_config.cap_add.unwrap_or_default(),
+            mounts: host_config.binds.unwrap_or_default(),
+        })
+    }
+
+    /// List container posture information for detector-backed audits
+    pub async fn list_container_postures(
+        &self,
+        all: bool,
+    ) -> Result<Vec<crate::detectors::ContainerPosture>> {
+        let options: Option<ListContainersOptions<String>> = Some(ListContainersOptions {
+            all,
+            size: false,
+            ..Default::default()
+        });
+
+        let containers = self
+            .client
+            .list_containers(options)
+            .await
+            .context("Failed to list containers for posture audit")?;
+
+        let mut result = Vec::new();
+        for container in containers {
+            if let Some(id) = container.id {
+                result.push(self.get_container_posture(&id).await?);
+            }
+        }
+
+        Ok(result)
+    }
+
     /// Quarantine a container (disconnect from all networks)
     pub async fn quarantine_container(&self, container_id: &str) -> Result<()> {
         // List all networks

@@ -36,10 +36,16 @@ pub struct LogAnomaly {
     pub description: String,
     pub severity: AnomalySeverity,
     pub sample_line: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detector_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detector_family: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<u8>,
 }
 
 /// Severity of a detected anomaly
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AnomalySeverity {
     Low,
     Medium,
@@ -328,6 +334,9 @@ fn parse_llm_response(source_id: &str, entries: &[LogEntry], raw_json: &str) -> 
             description: a.description.unwrap_or_default(),
             severity: parse_severity(&a.severity.unwrap_or_default()),
             sample_line: a.sample_line.unwrap_or_default(),
+            detector_id: None,
+            detector_family: None,
+            confidence: None,
         })
         .collect();
 
@@ -554,6 +563,9 @@ impl LogAnalyzer for PatternAnalyzer {
                     ),
                     severity: AnomalySeverity::High,
                     sample_line: sample.line.clone(),
+                    detector_id: None,
+                    detector_family: None,
+                    confidence: None,
                 });
             }
         }
@@ -862,6 +874,9 @@ mod tests {
                 description: "Test anomaly".into(),
                 severity: AnomalySeverity::Medium,
                 sample_line: "WARN: something".into(),
+                detector_id: None,
+                detector_family: None,
+                confidence: None,
             }],
         };
         let json = serde_json::to_string(&summary).unwrap();

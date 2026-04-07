@@ -6,6 +6,8 @@
 use crate::alerting::alert::{Alert, AlertSeverity, AlertType};
 use crate::alerting::notifications::{NotificationConfig, NotificationResult};
 use crate::database::connection::DbPool;
+use crate::database::models::{Alert as StoredAlert, AlertMetadata};
+use crate::database::repositories::alerts::create_alert;
 use crate::database::repositories::log_sources;
 use crate::sniff::analyzer::{AnomalySeverity, LogSummary};
 use anyhow::Result;
@@ -70,14 +72,39 @@ impl Reporter {
                 anomaly.description
             );
 
-            let alert = Alert::new(
-                AlertType::AnomalyDetected,
-                alert_severity,
-                format!(
-                    "[Log Sniff] {} — Source: {} | Sample: {}",
-                    anomaly.description, summary.source_id, anomaly.sample_line
-                ),
+            let message = format!(
+                "[Log Sniff] {} — Source: {} | Sample: {}",
+                anomaly.description, summary.source_id, anomaly.sample_line
             );
+            let alert = Alert::new(AlertType::AnomalyDetected, alert_severity, message.clone());
+
+            if let Some(pool) = pool {
+                let mut metadata = AlertMetadata::default()
+                    .with_source(summary.source_id.clone())
+                    .with_reason(anomaly.description.clone());
+                if let Some(detector_id) = &anomaly.detector_id {
+                    metadata
+                        .extra
+                        .insert("detector_id".into(), detector_id.clone());
+                }
+                if let Some(detector_family) = &anomaly.detector_family {
+                    metadata
+                        .extra
+                        .insert("detector_family".into(), detector_family.clone());
+                }
+                if let Some(confidence) = anomaly.confidence {
+                    metadata
+                        .extra
+                        .insert("detector_confidence".into(), confidence.to_string());
+                }
+
+                create_alert(
+                    pool,
+                    StoredAlert::new(AlertType::AnomalyDetected, alert_severity, message)
+                        .with_metadata(metadata),
+                )
+                .await?;
+            }
 
             // Route to appropriate notification channels
             let channels = self
@@ -125,6 +152,7 @@ pub struct ReportResult {
 mod tests {
     use super::*;
     use crate::database::connection::{create_pool, init_database};
+    use crate::database::repositories::{list_alerts, AlertFilter};
     use crate::sniff::analyzer::LogAnomaly;
     use chrono::Utc;
 
@@ -179,6 +207,9 @@ mod tests {
             description: "High error rate".into(),
             severity: AnomalySeverity::High,
             sample_line: "ERROR: connection failed".into(),
+            detector_id: None,
+            detector_family: None,
+            confidence: None,
         }]);
 
         let result = reporter.report(&summary, None).await.unwrap();
@@ -204,6 +235,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_report_persists_detector_metadata_in_alerts() {
+        let pool = create_pool(":memory:").unwrap();
+        init_database(&pool).unwrap();
+
+        let reporter = Reporter::new(NotificationConfig::default());
+        let summary = make_summary(vec![LogAnomaly {
+            description: "Potential SQL injection probing detected".into(),
+            severity: AnomalySeverity::High,
+            sample_line: "GET /search?q=UNION%20SELECT".into(),
+            detector_id: Some("web.sqli-probe".into()),
+            detector_family: Some("Web".into()),
+            confidence: Some(84),
+        }]);
+
+        reporter.report(&summary, Some(&pool)).await.unwrap();
+
+        let alerts = list_alerts(&pool, AlertFilter::default()).await.unwrap();
+        assert_eq!(alerts.len(), 1);
+        let metadata = alerts[0].metadata.as_ref().unwrap();
+        assert_eq!(metadata.source.as_deref(), Some("test-source"));
+        assert_eq!(
+            metadata.extra.get("detector_id").map(String::as_str),
+            Some("web.sqli-probe")
+        );
+        assert_eq!(
+            metadata.extra.get("detector_family").map(String::as_str),
+            Some("Web")
+        );
+    }
+
+    #[tokio::test]
     async fn test_report_multiple_anomalies() {
         let reporter = Reporter::new(NotificationConfig::default());
         let summary = make_summary(vec![
@@ -211,11 +273,17 @@ mod tests {
                 description: "Error spike".into(),
                 severity: AnomalySeverity::Critical,
                 sample_line: "FATAL: OOM".into(),
+                detector_id: None,
+                detector_family: None,
+                confidence: None,
             },
             LogAnomaly {
                 description: "Unusual pattern".into(),
                 severity: AnomalySeverity::Low,
                 sample_line: "DEBUG: retry".into(),
+                detector_id: None,
+                detector_family: None,
+                confidence: None,
             },
         ]);
 
@@ -243,6 +311,9 @@ mod tests {
             description: "High error rate".into(),
             severity: AnomalySeverity::High,
             sample_line: "ERROR: connection failed".into(),
+            detector_id: None,
+            detector_family: None,
+            confidence: None,
         }]);
 
         let result = reporter.report(&summary, None).await.unwrap();
