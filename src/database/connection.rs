@@ -189,6 +189,24 @@ pub fn init_database(pool: &DbPool) -> Result<()> {
     );
 
     conn.execute(
+        "CREATE TABLE IF NOT EXISTS file_integrity_baselines (
+            path TEXT PRIMARY KEY,
+            file_type TEXT NOT NULL,
+            sha256 TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            readonly INTEGER NOT NULL,
+            modified_at INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
+        [],
+    )?;
+
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_integrity_updated_at ON file_integrity_baselines(updated_at)",
+        [],
+    );
+
+    conn.execute(
         "CREATE TABLE IF NOT EXISTS ip_offenses (
             id TEXT PRIMARY KEY,
             ip_address TEXT NOT NULL,

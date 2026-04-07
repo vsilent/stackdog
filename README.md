@@ -19,6 +19,7 @@
 
 - **📊 Real-time Monitoring** — eBPF-based syscall monitoring with minimal overhead (<5% CPU)
 - **🔍 Log Sniffing** — Discover, read, and AI-summarize logs from containers and system files
+- **🧭 Detector Framework** — Rust-native detector registry for web attack heuristics and outbound exfiltration indicators
 - **🤖 AI/ML Detection** — Candle-powered anomaly detection + OpenAI/Ollama log analysis
 - **🚨 Alert System** — Multi-channel notifications (Slack, email, webhook)
 - **🔒 Automated Response** — nftables/iptables firewall, container quarantine
@@ -178,6 +179,14 @@ cargo run -- sniff --consume --output ./log-archive
 # Add custom log sources
 cargo run -- sniff --sources "/var/log/myapp.log,/opt/service/logs"
 ```
+
+The built-in sniff pipeline now includes Rust-native detectors for:
+
+- web attack indicators such as SQL injection probes, path traversal probes, login brute force, and webshell-style requests
+- exfiltration-style indicators such as suspicious SMTP/attachment activity and large outbound transfer hints in logs
+- reverse shell behavior, sensitive file access, cloud metadata / SSRF access, exfiltration chains, and secret leakage in logs
+- Wazuh-inspired file integrity monitoring for explicit paths configured with `STACKDOG_FIM_PATHS=/etc/ssh/sshd_config,/app/.env`
+- Wazuh-inspired configuration assessment via `STACKDOG_SCA_PATHS`, package inventory heuristics via `STACKDOG_PACKAGE_INVENTORY_PATHS`, Docker posture audits, and improved RFC3164/RFC5424 syslog parsing
 
 ### Use as Library
 

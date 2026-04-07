@@ -50,6 +50,7 @@ pub mod collectors;
 pub mod baselines;
 pub mod correlator;
 pub mod database;
+pub mod detectors;
 pub mod docker;
 pub mod ip_ban;
 pub mod ml;
