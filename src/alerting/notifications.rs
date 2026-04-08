@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use lettre::message::{Mailbox, MultiPart, SinglePart};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+use std::env;
 
 use crate::alerting::alert::{Alert, AlertSeverity};
 
@@ -32,6 +33,30 @@ impl NotificationConfig {
             smtp_password: None,
             webhook_url: None,
             email_recipients: Vec::new(),
+        }
+    }
+
+    /// Build notification config from environment variables.
+    pub fn from_env() -> Self {
+        Self {
+            slack_webhook: env::var("STACKDOG_SLACK_WEBHOOK_URL").ok(),
+            smtp_host: env::var("STACKDOG_SMTP_HOST").ok(),
+            smtp_port: env::var("STACKDOG_SMTP_PORT")
+                .ok()
+                .and_then(|value| value.parse().ok()),
+            smtp_user: env::var("STACKDOG_SMTP_USER").ok(),
+            smtp_password: env::var("STACKDOG_SMTP_PASSWORD").ok(),
+            webhook_url: env::var("STACKDOG_WEBHOOK_URL").ok(),
+            email_recipients: env::var("STACKDOG_EMAIL_RECIPIENTS")
+                .ok()
+                .map(|recipients| {
+                    recipients
+                        .split(',')
+                        .map(|recipient| recipient.trim().to_string())
+                        .filter(|recipient| !recipient.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
         }
     }
 
@@ -137,6 +162,17 @@ impl NotificationConfig {
             }
         }
     }
+}
+
+pub fn env_flag_enabled(name: &str, default: bool) -> bool {
+    env::var(name)
+        .ok()
+        .and_then(|value| match value.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => Some(true),
+            "0" | "false" | "no" | "off" => Some(false),
+            _ => None,
+        })
+        .unwrap_or(default)
 }
 
 /// Notification channel
@@ -329,6 +365,41 @@ impl NotificationChannel {
     }
 }
 
+pub async fn dispatch_stored_alert(
+    alert: &crate::database::models::Alert,
+    config: &NotificationConfig,
+) -> Result<usize> {
+    let mut runtime_alert = Alert::new(alert.alert_type, alert.severity, alert.message.clone());
+
+    if let Some(metadata) = &alert.metadata {
+        if let Some(container_id) = &metadata.container_id {
+            runtime_alert.add_metadata("container_id".into(), container_id.clone());
+        }
+        if let Some(source) = &metadata.source {
+            runtime_alert.add_metadata("source".into(), source.clone());
+        }
+        if let Some(reason) = &metadata.reason {
+            runtime_alert.add_metadata("reason".into(), reason.clone());
+        }
+        for (key, value) in &metadata.extra {
+            runtime_alert.add_metadata(key.clone(), value.clone());
+        }
+    }
+
+    let channels = config.configured_channels_for_severity(alert.severity);
+    let mut sent = 0;
+    for channel in &channels {
+        match channel.send(&runtime_alert, config).await? {
+            NotificationResult::Success(_) => sent += 1,
+            NotificationResult::Failure(message) => {
+                log::warn!("Action notification channel reported failure: {}", message)
+            }
+        }
+    }
+
+    Ok(sent)
+}
+
 /// Notification result
 #[derive(Debug, Clone)]
 pub enum NotificationResult {
@@ -443,6 +514,21 @@ fn build_email_html(alert: &Alert) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+    fn clear_notification_env() {
+        env::remove_var("STACKDOG_SLACK_WEBHOOK_URL");
+        env::remove_var("STACKDOG_WEBHOOK_URL");
+        env::remove_var("STACKDOG_SMTP_HOST");
+        env::remove_var("STACKDOG_SMTP_PORT");
+        env::remove_var("STACKDOG_SMTP_USER");
+        env::remove_var("STACKDOG_SMTP_PASSWORD");
+        env::remove_var("STACKDOG_EMAIL_RECIPIENTS");
+        env::remove_var("STACKDOG_NOTIFY_IP_BAN_ACTIONS");
+        env::remove_var("STACKDOG_NOTIFY_QUARANTINE_ACTIONS");
+    }
 
     #[tokio::test]
     async fn test_console_notification() {
@@ -455,6 +541,61 @@ mod tests {
 
         let result = channel.send(&alert, &NotificationConfig::default()).await;
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_notification_config_from_env_reads_channels() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        clear_notification_env();
+
+        env::set_var(
+            "STACKDOG_SLACK_WEBHOOK_URL",
+            "https://hooks.slack.test/services/1",
+        );
+        env::set_var("STACKDOG_WEBHOOK_URL", "https://example.test/webhook");
+        env::set_var("STACKDOG_SMTP_HOST", "smtp.example.com");
+        env::set_var("STACKDOG_SMTP_PORT", "2525");
+        env::set_var("STACKDOG_SMTP_USER", "alerts@example.com");
+        env::set_var("STACKDOG_SMTP_PASSWORD", "secret");
+        env::set_var(
+            "STACKDOG_EMAIL_RECIPIENTS",
+            "soc@example.com,oncall@example.com",
+        );
+
+        let config = NotificationConfig::from_env();
+
+        assert_eq!(
+            config.slack_webhook(),
+            Some("https://hooks.slack.test/services/1")
+        );
+        assert_eq!(config.webhook_url(), Some("https://example.test/webhook"));
+        assert_eq!(config.smtp_host(), Some("smtp.example.com"));
+        assert_eq!(config.smtp_port(), Some(2525));
+        assert_eq!(config.smtp_user(), Some("alerts@example.com"));
+        assert_eq!(config.smtp_password(), Some("secret"));
+        assert_eq!(
+            config.email_recipients(),
+            &[
+                "soc@example.com".to_string(),
+                "oncall@example.com".to_string()
+            ]
+        );
+
+        clear_notification_env();
+    }
+
+    #[test]
+    fn test_env_flag_enabled_honors_boolean_values() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        clear_notification_env();
+
+        assert!(env_flag_enabled("STACKDOG_NOTIFY_IP_BAN_ACTIONS", true));
+        env::set_var("STACKDOG_NOTIFY_IP_BAN_ACTIONS", "false");
+        assert!(!env_flag_enabled("STACKDOG_NOTIFY_IP_BAN_ACTIONS", true));
+        env::set_var("STACKDOG_NOTIFY_IP_BAN_ACTIONS", "yes");
+        assert!(env_flag_enabled("STACKDOG_NOTIFY_IP_BAN_ACTIONS", false));
+
+        clear_notification_env();
     }
 
     #[test]

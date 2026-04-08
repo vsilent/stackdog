@@ -1,3 +1,4 @@
+use crate::alerting::notifications::{dispatch_stored_alert, env_flag_enabled, NotificationConfig};
 use crate::alerting::{AlertSeverity, AlertType};
 use crate::database::models::{Alert, AlertMetadata};
 use crate::database::repositories::offenses::{
@@ -85,7 +86,7 @@ impl IpBanEngine {
             self.with_firewall_backend(|backend| backend.unblock_ip(&offense.ip_address))?;
 
             mark_released(&self.pool, &offense.id)?;
-            create_alert(
+            let alert = create_alert(
                 &self.pool,
                 Alert::new(
                     AlertType::SystemEvent,
@@ -99,6 +100,8 @@ impl IpBanEngine {
                 ),
             )
             .await?;
+            self.notify_action_alert(&alert, "STACKDOG_NOTIFY_IP_BAN_ACTIONS", "ip ban release")
+                .await;
             released += 1;
         }
 
@@ -117,7 +120,7 @@ impl IpBanEngine {
             blocked_until,
         )?;
 
-        create_alert(
+        let alert = create_alert(
             &self.pool,
             Alert::new(
                 AlertType::ThresholdExceeded,
@@ -138,8 +141,21 @@ impl IpBanEngine {
             }),
         )
         .await?;
+        self.notify_action_alert(&alert, "STACKDOG_NOTIFY_IP_BAN_ACTIONS", "ip ban")
+            .await;
 
         Ok(())
+    }
+
+    async fn notify_action_alert(&self, alert: &Alert, env_toggle: &str, action_name: &str) {
+        if !env_flag_enabled(env_toggle, true) {
+            return;
+        }
+
+        let config = NotificationConfig::from_env();
+        if let Err(err) = dispatch_stored_alert(alert, &config).await {
+            log::warn!("Failed to send {} notification: {}", action_name, err);
+        }
     }
 
     #[cfg(target_os = "linux")]

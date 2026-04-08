@@ -24,6 +24,7 @@ use crate::sniff::reader::{DockerLogReader, FileLogReader, LogReader};
 use crate::sniff::reporter::Reporter;
 use anyhow::Result;
 use chrono::Utc;
+use std::net::Ipv4Addr;
 
 /// Main orchestrator for the sniff command
 pub struct SniffOrchestrator {
@@ -283,6 +284,10 @@ impl SniffOrchestrator {
         engine: &IpBanEngine,
     ) -> Result<()> {
         for anomaly in &summary.anomalies {
+            if !should_auto_ban(anomaly) {
+                continue;
+            }
+
             let severity = match anomaly.severity {
                 analyzer::AnomalySeverity::Low => crate::alerting::AlertSeverity::Low,
                 analyzer::AnomalySeverity::Medium => crate::alerting::AlertSeverity::Medium,
@@ -291,6 +296,10 @@ impl SniffOrchestrator {
             };
 
             for ip in IpBanEngine::extract_ip_candidates(&anomaly.sample_line) {
+                if !is_public_routable_ipv4(&ip) {
+                    continue;
+                }
+
                 engine
                     .record_offense(OffenseInput {
                         ip_address: ip,
@@ -382,6 +391,47 @@ pub struct SniffPassResult {
     pub entries_archived: usize,
 }
 
+fn should_auto_ban(anomaly: &analyzer::LogAnomaly) -> bool {
+    if let Some(detector_id) = anomaly.detector_id.as_deref() {
+        if matches!(detector_id, "web.login-bruteforce" | "web.path-traversal") {
+            return true;
+        }
+    }
+
+    let description = anomaly.description.to_ascii_lowercase();
+    [
+        "brute-force",
+        "failed ssh login",
+        "failed login attempts",
+        "authentication failures",
+        "invalid user",
+        "path traversal",
+    ]
+    .iter()
+    .any(|needle| description.contains(needle))
+}
+
+fn is_public_routable_ipv4(ip: &str) -> bool {
+    let Ok(ip) = ip.parse::<Ipv4Addr>() else {
+        return false;
+    };
+
+    !(ip.is_private()
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || ip.is_multicast()
+        || ip.is_broadcast()
+        || ip.is_unspecified()
+        || ip.octets()[0] == 0
+        || (ip.octets()[0] == 100 && (64..=127).contains(&ip.octets()[1]))
+        || (ip.octets()[0] == 198 && ip.octets()[1] == 18)
+        || (ip.octets()[0] == 198 && ip.octets()[1] == 19)
+        || (ip.octets()[0] == 192 && ip.octets()[1] == 0 && ip.octets()[2] == 2)
+        || (ip.octets()[0] == 198 && ip.octets()[1] == 51 && ip.octets()[2] == 100)
+        || (ip.octets()[0] == 203 && ip.octets()[1] == 0 && ip.octets()[2] == 113)
+        || ip.octets()[0] >= 240)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,6 +497,32 @@ mod tests {
         }
     }
 
+    fn make_detector_summary(
+        description: &str,
+        sample_line: &str,
+        severity: analyzer::AnomalySeverity,
+        detector_id: Option<&str>,
+    ) -> LogSummary {
+        LogSummary {
+            source_id: "test-source".into(),
+            period_start: Utc::now(),
+            period_end: Utc::now(),
+            total_entries: 1,
+            summary_text: description.into(),
+            error_count: 1,
+            warning_count: 0,
+            key_events: vec![description.into()],
+            anomalies: vec![LogAnomaly {
+                description: description.into(),
+                severity,
+                sample_line: sample_line.into(),
+                detector_id: detector_id.map(str::to_string),
+                detector_family: None,
+                confidence: None,
+            }],
+        }
+    }
+
     #[test]
     fn test_sniff_pass_result_default() {
         let result = SniffPassResult::default();
@@ -454,6 +530,42 @@ mod tests {
         assert_eq!(result.total_entries, 0);
         assert_eq!(result.anomalies_found, 0);
         assert_eq!(result.bytes_freed, 0);
+    }
+
+    #[test]
+    fn test_should_auto_ban_detector_backed_traversal_probe() {
+        let anomaly = LogAnomaly {
+            description: "Path traversal probing indicators found in 2 log entries".into(),
+            severity: AnomalySeverity::High,
+            sample_line: "GET /../../etc/passwd HTTP/1.1".into(),
+            detector_id: Some("web.path-traversal".into()),
+            detector_family: Some("Web".into()),
+            confidence: Some(82),
+        };
+
+        assert!(should_auto_ban(&anomaly));
+    }
+
+    #[test]
+    fn test_should_not_auto_ban_secret_leakage_alerts() {
+        let anomaly = LogAnomaly {
+            description: "Potential secret leakage detected in 1 log entries".into(),
+            severity: AnomalySeverity::High,
+            sample_line: "Authorization: Bearer token".into(),
+            detector_id: Some("secrets.log-leakage".into()),
+            detector_family: Some("Secrets".into()),
+            confidence: Some(92),
+        };
+
+        assert!(!should_auto_ban(&anomaly));
+    }
+
+    #[test]
+    fn test_is_public_routable_ipv4_skips_private_and_documentation_ranges() {
+        assert!(!is_public_routable_ipv4("127.0.0.1"));
+        assert!(!is_public_routable_ipv4("10.1.2.3"));
+        assert!(!is_public_routable_ipv4("192.0.2.10"));
+        assert!(is_public_routable_ipv4("95.163.183.214"));
     }
 
     #[test]
@@ -660,7 +772,7 @@ mod tests {
             },
         );
         let summary = make_summary(
-            "Failed password for root from 192.0.2.80 port 2222 ssh2",
+            "Failed password for root from 95.163.183.214 port 2222 ssh2",
             AnomalySeverity::High,
         );
 
@@ -668,7 +780,7 @@ mod tests {
 
         let offenses = find_recent_offenses(
             &orchestrator.pool,
-            "192.0.2.80",
+            "95.163.183.214",
             "sniff",
             Utc::now() - chrono::Duration::minutes(5),
         )
@@ -680,9 +792,9 @@ mod tests {
                 .metadata
                 .as_ref()
                 .and_then(|metadata| metadata.sample_line.as_deref()),
-            Some("Failed password for root from 192.0.2.80 port 2222 ssh2")
+            Some("Failed password for root from 95.163.183.214 port 2222 ssh2")
         );
-        assert!(active_block_for_ip(&orchestrator.pool, "192.0.2.80")
+        assert!(active_block_for_ip(&orchestrator.pool, "95.163.183.214")
             .unwrap()
             .is_none());
     }
@@ -701,7 +813,7 @@ mod tests {
             },
         );
         let summary = make_summary(
-            "Failed password for root from 192.0.2.81 port 3333 ssh2",
+            "Failed password for root from 95.163.183.215 port 3333 ssh2",
             AnomalySeverity::Critical,
         );
 
@@ -721,7 +833,7 @@ mod tests {
 
         second_attempt.unwrap();
 
-        assert!(active_block_for_ip(&orchestrator.pool, "192.0.2.81")
+        assert!(active_block_for_ip(&orchestrator.pool, "95.163.183.215")
             .unwrap()
             .is_some());
 
@@ -732,7 +844,7 @@ mod tests {
         assert_eq!(alerts[0].alert_type.to_string(), "ThresholdExceeded");
         assert_eq!(
             alerts[0].message,
-            "Blocked IP 192.0.2.81 after repeated sniff offenses"
+            "Blocked IP 95.163.183.215 after repeated sniff offenses"
         );
         assert_eq!(
             alerts[0]
@@ -748,5 +860,67 @@ mod tests {
                 .and_then(|metadata| metadata.reason.as_deref()),
             Some("Repeated failed ssh login")
         );
+    }
+
+    #[actix_rt::test]
+    async fn test_apply_ip_ban_skips_non_bannable_anomalies() {
+        let orchestrator = SniffOrchestrator::new(memory_sniff_config()).unwrap();
+        let engine = IpBanEngine::new(
+            orchestrator.pool.clone(),
+            IpBanConfig {
+                enabled: true,
+                max_retries: 1,
+                find_time_secs: 300,
+                ban_time_secs: 60,
+                unban_check_interval_secs: 60,
+            },
+        );
+        let summary = make_detector_summary(
+            "Potential secret leakage detected in 1 log entries",
+            "Client 95.163.183.214 saw secret-like output",
+            AnomalySeverity::High,
+            Some("secrets.log-leakage"),
+        );
+
+        orchestrator.apply_ip_ban(&summary, &engine).await.unwrap();
+
+        let offenses = find_recent_offenses(
+            &orchestrator.pool,
+            "95.163.183.214",
+            "sniff",
+            Utc::now() - chrono::Duration::minutes(5),
+        )
+        .unwrap();
+        assert!(offenses.is_empty());
+    }
+
+    #[actix_rt::test]
+    async fn test_apply_ip_ban_skips_loopback_and_private_ips() {
+        let orchestrator = SniffOrchestrator::new(memory_sniff_config()).unwrap();
+        let engine = IpBanEngine::new(
+            orchestrator.pool.clone(),
+            IpBanConfig {
+                enabled: true,
+                max_retries: 1,
+                find_time_secs: 300,
+                ban_time_secs: 60,
+                unban_check_interval_secs: 60,
+            },
+        );
+        let summary = make_summary(
+            "Failed password for root from 127.0.0.1 port 2222 ssh2",
+            AnomalySeverity::High,
+        );
+
+        orchestrator.apply_ip_ban(&summary, &engine).await.unwrap();
+
+        let offenses = find_recent_offenses(
+            &orchestrator.pool,
+            "127.0.0.1",
+            "sniff",
+            Utc::now() - chrono::Duration::minutes(5),
+        )
+        .unwrap();
+        assert!(offenses.is_empty());
     }
 }

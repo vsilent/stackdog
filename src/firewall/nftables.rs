@@ -139,6 +139,33 @@ impl NfTablesBackend {
         Ok(())
     }
 
+    fn delete_rule_by_handle(&self, chain: &NfChain, handle: &str) -> Result<()> {
+        self.run_nft(
+            &[
+                "delete",
+                "rule",
+                &chain.table.family,
+                &chain.table.name,
+                &chain.name,
+                "handle",
+                handle,
+            ],
+            "Failed to delete nftables rule by handle",
+        )
+    }
+
+    fn find_rule_handle(rules: &[String], rule_spec: &str) -> Option<String> {
+        rules.iter().find_map(|line| {
+            let normalized = line.split_whitespace().collect::<Vec<_>>().join(" ");
+            if !normalized.contains(rule_spec) {
+                return None;
+            }
+
+            line.rsplit_once("# handle ")
+                .map(|(_, handle)| handle.trim().to_string())
+        })
+    }
+
     /// Create a new nftables backend
     pub fn new() -> Result<Self> {
         #[cfg(target_os = "linux")]
@@ -264,24 +291,14 @@ impl NfTablesBackend {
 
     /// Delete a rule
     pub fn delete_rule(&self, rule: &NfRule) -> Result<()> {
-        let cmd = format!(
-            "delete rule {} {} {}",
-            rule.chain.table, rule.chain.name, rule.rule_spec
-        );
-
-        let output = Command::new("nft")
-            .args(["-c", &cmd])
-            .output()
-            .context("Failed to delete nftables rule")?;
-
-        if !output.status.success() {
-            anyhow::bail!(
-                "Failed to delete rule: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        Ok(())
+        let rules = self.list_rules(&rule.chain)?;
+        let handle = Self::find_rule_handle(&rules, &rule.rule_spec).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Failed to delete rule: no matching handle found for '{}'",
+                rule.rule_spec
+            )
+        })?;
+        self.delete_rule_by_handle(&rule.chain, &handle)
     }
 
     /// Batch add multiple rules
@@ -313,10 +330,15 @@ impl NfTablesBackend {
 
     /// List rules in a chain
     pub fn list_rules(&self, chain: &NfChain) -> Result<Vec<String>> {
-        let cmd = format!("list chain {} {}", chain.table, chain.name);
-
         let output = Command::new("nft")
-            .args(["-c", &cmd])
+            .args([
+                "-a",
+                "list",
+                "chain",
+                &chain.table.family,
+                &chain.table.name,
+                &chain.name,
+            ])
             .output()
             .context("Failed to list nftables rules")?;
 
@@ -355,12 +377,9 @@ impl FirewallBackend for NfTablesBackend {
 
     fn unblock_ip(&self, ip: &str) -> Result<()> {
         self.ensure_filter_table()?;
-        self.run_nft(
-            &[
-                "delete", "rule", "inet", "stackdog", "input", "ip", "saddr", ip, "drop",
-            ],
-            "Failed to unblock IP with nftables",
-        )
+        let chain = NfChain::new(&self.base_table(), "input", "filter");
+        let rule = NfRule::new(&chain, format!("ip saddr {} drop", ip));
+        self.delete_rule(&rule)
     }
 
     fn block_port(&self, port: u16) -> Result<()> {
@@ -376,13 +395,9 @@ impl FirewallBackend for NfTablesBackend {
 
     fn unblock_port(&self, port: u16) -> Result<()> {
         self.ensure_filter_table()?;
-        let port = port.to_string();
-        self.run_nft(
-            &[
-                "delete", "rule", "inet", "stackdog", "output", "tcp", "dport", &port, "drop",
-            ],
-            "Failed to unblock port with nftables",
-        )
+        let chain = NfChain::new(&self.base_table(), "output", "filter");
+        let rule = NfRule::new(&chain, format!("tcp dport {} drop", port));
+        self.delete_rule(&rule)
     }
 
     fn block_container(&self, container_id: &str) -> Result<()> {
@@ -428,5 +443,39 @@ mod tests {
         let backend = NfTablesBackend { available: true };
         let result = backend.block_container("container-1");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_find_rule_handle_matches_ip_rule() {
+        let rules = vec![
+            "table inet stackdog {".to_string(),
+            "    chain input {".to_string(),
+            "        type filter hook input priority filter; policy accept;".to_string(),
+            "        ip saddr 172.17.0.1 drop # handle 7".to_string(),
+            "    }".to_string(),
+            "}".to_string(),
+        ];
+
+        let handle = NfTablesBackend::find_rule_handle(&rules, "ip saddr 172.17.0.1 drop");
+
+        assert_eq!(handle.as_deref(), Some("7"));
+    }
+
+    #[test]
+    fn test_find_rule_handle_matches_port_rule_with_spacing() {
+        let rules = vec!["        tcp   dport   443   drop   # handle 12".to_string()];
+
+        let handle = NfTablesBackend::find_rule_handle(&rules, "tcp dport 443 drop");
+
+        assert_eq!(handle.as_deref(), Some("12"));
+    }
+
+    #[test]
+    fn test_find_rule_handle_returns_none_for_missing_rule() {
+        let rules = vec!["ip saddr 192.0.2.1 drop # handle 4".to_string()];
+
+        let handle = NfTablesBackend::find_rule_handle(&rules, "ip saddr 198.51.100.9 drop");
+
+        assert!(handle.is_none());
     }
 }
