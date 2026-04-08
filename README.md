@@ -48,12 +48,12 @@
 ### Install with curl (Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vsilent/stackdog/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/trydirect/stackdog/main/install.sh | sudo bash
 ```
 
 Pin a specific version:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vsilent/stackdog/main/install.sh | sudo bash -s -- --version v0.2.2
+curl -fsSL https://raw.githubusercontent.com/trydirect/stackdog/main/install.sh | sudo bash -s -- --version v0.2.2
 ```
 
 If your repository has no published stable release yet, use `--version` explicitly.
@@ -62,7 +62,7 @@ If your repository has no published stable release yet, use `--version` explicit
 
 ```bash
 # Clone repository
-git clone https://github.com/vsilent/stackdog
+git clone https://github.com/trydirect/stackdog
 cd stackdog
 
 # Start the HTTP server (default)
@@ -466,7 +466,7 @@ dnf install sqlite-devel openssl-devel clang llvm
 ### Build from Source
 
 ```bash
-git clone https://github.com/vsilent/stackdog
+git clone https://github.com/trydirect/stackdog
 cd stackdog
 cargo build --release
 ```
@@ -617,7 +617,7 @@ stackdog/
 
 ```bash
 # 1. Clone and setup
-git clone https://github.com/vsilent/stackdog
+git clone https://github.com/trydirect/stackdog
 cd stackdog
 cp .env.sample .env
 
