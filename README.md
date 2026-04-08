@@ -165,19 +165,19 @@ docker compose -f docker-compose.app.yml down
 
 ```bash
 # Discover and analyze logs (one-shot)
-cargo run -- sniff --once
+stackdog -- sniff --once
 
 # Continuous monitoring with AI analysis
-cargo run -- sniff --ai-provider openai
+stackdog -- sniff --ai-provider openai
 
 # Use Ollama (local LLM)
 STACKDOG_AI_API_URL=http://localhost:11434/v1 cargo run -- sniff
 
 # Consume mode: archive to zstd + purge originals
-cargo run -- sniff --consume --output ./log-archive
+stackdog -- sniff --consume --output ./log-archive
 
 # Add custom log sources
-cargo run -- sniff --sources "/var/log/myapp.log,/opt/service/logs"
+stackdog -- sniff --sources "/var/log/myapp.log,/opt/service/logs"
 ```
 
 The built-in sniff pipeline now includes Rust-native detectors for:
