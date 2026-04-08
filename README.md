@@ -1,6 +1,6 @@
 # Stackdog Security
 
-![Version](https://img.shields.io/badge/version-0.2.1-blue.svg)
+![Version](https://img.shields.io/badge/version-0.2.2-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)
 ![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey.svg)
@@ -19,6 +19,7 @@
 
 - **📊 Real-time Monitoring** — eBPF-based syscall monitoring with minimal overhead (<5% CPU)
 - **🔍 Log Sniffing** — Discover, read, and AI-summarize logs from containers and system files
+- **🧭 Detector Framework** — Rust-native detector registry for web attack heuristics and outbound exfiltration indicators
 - **🤖 AI/ML Detection** — Candle-powered anomaly detection + OpenAI/Ollama log analysis
 - **🚨 Alert System** — Multi-channel notifications (Slack, email, webhook)
 - **🔒 Automated Response** — nftables/iptables firewall, container quarantine
@@ -47,12 +48,12 @@
 ### Install with curl (Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vsilent/stackdog/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/trydirect/stackdog/main/install.sh | sudo bash
 ```
 
 Pin a specific version:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vsilent/stackdog/main/install.sh | sudo bash -s -- --version v0.2.1
+curl -fsSL https://raw.githubusercontent.com/trydirect/stackdog/main/install.sh | sudo bash -s -- --version v0.2.2
 ```
 
 If your repository has no published stable release yet, use `--version` explicitly.
@@ -61,7 +62,7 @@ If your repository has no published stable release yet, use `--version` explicit
 
 ```bash
 # Clone repository
-git clone https://github.com/vsilent/stackdog
+git clone https://github.com/trydirect/stackdog
 cd stackdog
 
 # Start the HTTP server (default)
@@ -164,20 +165,28 @@ docker compose -f docker-compose.app.yml down
 
 ```bash
 # Discover and analyze logs (one-shot)
-cargo run -- sniff --once
+stackdog -- sniff --once
 
 # Continuous monitoring with AI analysis
-cargo run -- sniff --ai-provider openai
+stackdog -- sniff --ai-provider openai
 
 # Use Ollama (local LLM)
 STACKDOG_AI_API_URL=http://localhost:11434/v1 cargo run -- sniff
 
 # Consume mode: archive to zstd + purge originals
-cargo run -- sniff --consume --output ./log-archive
+stackdog -- sniff --consume --output ./log-archive
 
 # Add custom log sources
-cargo run -- sniff --sources "/var/log/myapp.log,/opt/service/logs"
+stackdog -- sniff --sources "/var/log/myapp.log,/opt/service/logs"
 ```
+
+The built-in sniff pipeline now includes Rust-native detectors for:
+
+- web attack indicators such as SQL injection probes, path traversal probes, login brute force, and webshell-style requests
+- exfiltration-style indicators such as suspicious SMTP/attachment activity and large outbound transfer hints in logs
+- reverse shell behavior, sensitive file access, cloud metadata / SSRF access, exfiltration chains, and secret leakage in logs
+- Wazuh-inspired file integrity monitoring for explicit paths configured with `STACKDOG_FIM_PATHS=/etc/ssh/sshd_config,/app/.env`
+- Wazuh-inspired configuration assessment via `STACKDOG_SCA_PATHS`, package inventory heuristics via `STACKDOG_PACKAGE_INVENTORY_PATHS`, Docker posture audits, and improved RFC3164/RFC5424 syslog parsing
 
 ### Use as Library
 
@@ -457,7 +466,7 @@ dnf install sqlite-devel openssl-devel clang llvm
 ### Build from Source
 
 ```bash
-git clone https://github.com/vsilent/stackdog
+git clone https://github.com/trydirect/stackdog
 cd stackdog
 cargo build --release
 ```
@@ -608,7 +617,7 @@ stackdog/
 
 ```bash
 # 1. Clone and setup
-git clone https://github.com/vsilent/stackdog
+git clone https://github.com/trydirect/stackdog
 cd stackdog
 cp .env.sample .env
 

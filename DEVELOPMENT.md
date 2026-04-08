@@ -1,7 +1,7 @@
 # Stackdog Security - Development Plan
 
-**Last Updated:** 2026-03-13  
-**Current Version:** 0.2.0  
+**Last Updated:** 2026-04-07  
+**Current Version:** 0.2.2  
 **Status:** Phase 2 In Progress
 
 ## Project Vision

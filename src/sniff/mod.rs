@@ -13,6 +13,8 @@ pub mod reporter;
 use crate::alerting::notifications::NotificationConfig;
 use crate::database::connection::{create_pool, init_database, DbPool};
 use crate::database::repositories::log_sources as log_sources_repo;
+use crate::detectors::DetectorRegistry;
+use crate::docker::DockerClient;
 use crate::ip_ban::{IpBanConfig, IpBanEngine, OffenseInput};
 use crate::sniff::analyzer::{LogAnalyzer, PatternAnalyzer};
 use crate::sniff::config::SniffConfig;
@@ -21,11 +23,13 @@ use crate::sniff::discovery::LogSourceType;
 use crate::sniff::reader::{DockerLogReader, FileLogReader, LogReader};
 use crate::sniff::reporter::Reporter;
 use anyhow::Result;
+use chrono::Utc;
 
 /// Main orchestrator for the sniff command
 pub struct SniffOrchestrator {
     config: SniffConfig,
     pool: DbPool,
+    detectors: DetectorRegistry,
     reporter: Reporter,
     ip_ban: Option<IpBanEngine>,
 }
@@ -67,6 +71,7 @@ impl SniffOrchestrator {
         Ok(Self {
             config,
             pool,
+            detectors: DetectorRegistry::default(),
             reporter,
             ip_ban,
         })
@@ -123,6 +128,49 @@ impl SniffOrchestrator {
     pub async fn run_once(&self) -> Result<SniffPassResult> {
         let mut result = SniffPassResult::default();
 
+        self.report_detector_batch(
+            &mut result,
+            "file-integrity",
+            self.config.integrity_paths.len(),
+            "File integrity monitoring",
+            self.detectors
+                .detect_file_integrity_anomalies(&self.pool, &self.config.integrity_paths)?,
+        )
+        .await?;
+        self.report_detector_batch(
+            &mut result,
+            "config-assessment",
+            self.config.config_assessment_paths.len(),
+            "Configuration assessment",
+            self.detectors
+                .detect_config_assessment_anomalies(&self.config.config_assessment_paths)?,
+        )
+        .await?;
+        self.report_detector_batch(
+            &mut result,
+            "package-audit",
+            self.config.package_inventory_paths.len(),
+            "Package inventory audit",
+            self.detectors
+                .detect_package_inventory_anomalies(&self.config.package_inventory_paths)?,
+        )
+        .await?;
+
+        match DockerClient::new().await {
+            Ok(docker) => {
+                let postures = docker.list_container_postures(true).await?;
+                self.report_detector_batch(
+                    &mut result,
+                    "docker-posture",
+                    postures.len(),
+                    "Docker posture audit",
+                    self.detectors.detect_docker_posture_anomalies(&postures),
+                )
+                .await?;
+            }
+            Err(err) => log::debug!("Skipping Docker posture audit: {}", err),
+        }
+
         // 1. Discover sources
         log::debug!("Step 1: discovering log sources...");
         let sources = discovery::discover_all(&self.config.extra_sources).await?;
@@ -168,7 +216,17 @@ impl SniffOrchestrator {
 
             // 4. Analyze
             log::debug!("Step 4: analyzing {} entries...", entries.len());
-            let summary = analyzer.summarize(&entries).await?;
+            let mut summary = analyzer.summarize(&entries).await?;
+            let detector_anomalies = self.detectors.detect_log_anomalies(&entries);
+            if !detector_anomalies.is_empty() {
+                summary.key_events.extend(
+                    detector_anomalies
+                        .iter()
+                        .take(5)
+                        .map(|anomaly| anomaly.description.clone()),
+                );
+                summary.anomalies.extend(detector_anomalies);
+            }
             log::debug!(
                 "  Analysis complete: {} errors, {} warnings, {} anomalies",
                 summary.error_count,
@@ -250,6 +308,38 @@ impl SniffOrchestrator {
         Ok(())
     }
 
+    async fn report_detector_batch(
+        &self,
+        result: &mut SniffPassResult,
+        source_id: &str,
+        total_entries: usize,
+        label: &str,
+        anomalies: Vec<analyzer::LogAnomaly>,
+    ) -> Result<()> {
+        if anomalies.is_empty() {
+            return Ok(());
+        }
+
+        let summary = analyzer::LogSummary {
+            source_id: source_id.into(),
+            period_start: Utc::now(),
+            period_end: Utc::now(),
+            total_entries,
+            summary_text: format!("{} detected {} anomaly entries", label, anomalies.len()),
+            error_count: 0,
+            warning_count: 0,
+            key_events: anomalies
+                .iter()
+                .take(5)
+                .map(|anomaly| anomaly.description.clone())
+                .collect(),
+            anomalies,
+        };
+        let report = self.reporter.report(&summary, Some(&self.pool)).await?;
+        result.anomalies_found += report.anomalies_reported;
+        Ok(())
+    }
+
     /// Run the sniff loop (continuous or one-shot)
     pub async fn run(&self) -> Result<()> {
         log::info!("🔍 Sniff orchestrator started");
@@ -321,7 +411,7 @@ mod tests {
             output: "./stackdog-logs/",
             sources: None,
             interval: 30,
-            ai_provider: None,
+            ai_provider: Some("candle"),
             ai_model: None,
             ai_api_url: None,
             slack_webhook: None,
@@ -350,6 +440,9 @@ mod tests {
                 description: "Repeated failed ssh login".into(),
                 severity,
                 sample_line: sample_line.into(),
+                detector_id: None,
+                detector_family: None,
+                confidence: None,
             }],
         }
     }
@@ -424,6 +517,133 @@ mod tests {
 
         assert!(result.sources_found >= 1);
         assert!(result.total_entries >= 3);
+    }
+
+    #[tokio::test]
+    async fn test_orchestrator_applies_builtin_detectors_to_log_entries() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("attacks.log");
+        {
+            let mut f = std::fs::File::create(&log_path).unwrap();
+            writeln!(f, r#"GET /search?q=' OR 1=1 -- HTTP/1.1"#).unwrap();
+            writeln!(
+                f,
+                r#"GET /search?q=UNION SELECT password FROM users HTTP/1.1"#
+            )
+            .unwrap();
+            writeln!(f, "sendmail invoked for attachment bytes=2000000").unwrap();
+            writeln!(f, "smtp delivery queued bytes=3000000").unwrap();
+        }
+
+        let mut config = SniffConfig::from_env_and_args(config::SniffArgs {
+            once: true,
+            consume: false,
+            output: "./stackdog-logs/",
+            sources: Some(&log_path.to_string_lossy()),
+            interval: 30,
+            ai_provider: Some("candle"),
+            ai_model: None,
+            ai_api_url: None,
+            slack_webhook: None,
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
+        });
+        config.database_url = ":memory:".into();
+
+        let orchestrator = SniffOrchestrator::new(config).unwrap();
+        let result = orchestrator.run_once().await.unwrap();
+
+        assert!(result.anomalies_found >= 2);
+    }
+
+    #[tokio::test]
+    async fn test_orchestrator_reports_file_integrity_drift() {
+        let dir = tempfile::tempdir().unwrap();
+        let monitored = dir.path().join("app.env");
+        std::fs::write(&monitored, "TOKEN=first").unwrap();
+
+        let mut config = memory_sniff_config();
+        config.integrity_paths = vec![monitored.to_string_lossy().into_owned()];
+
+        let orchestrator = SniffOrchestrator::new(config).unwrap();
+        orchestrator.run_once().await.unwrap();
+
+        std::fs::write(&monitored, "TOKEN=second").unwrap();
+        let result = orchestrator.run_once().await.unwrap();
+
+        assert!(result.anomalies_found >= 1);
+
+        let alerts = list_alerts(&orchestrator.pool, AlertFilter::default())
+            .await
+            .unwrap();
+        assert!(alerts.iter().any(|alert| {
+            alert
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.extra.get("detector_id").map(String::as_str))
+                == Some("integrity.file-baseline")
+        }));
+    }
+
+    #[tokio::test]
+    async fn test_orchestrator_reports_config_assessment_findings() {
+        let dir = tempfile::tempdir().unwrap();
+        let sshd = dir.path().join("sshd_config");
+        std::fs::write(&sshd, "PermitRootLogin yes\nPasswordAuthentication yes\n").unwrap();
+
+        let mut config = memory_sniff_config();
+        config.config_assessment_paths = vec![sshd.to_string_lossy().into_owned()];
+
+        let orchestrator = SniffOrchestrator::new(config).unwrap();
+        let result = orchestrator.run_once().await.unwrap();
+
+        assert!(result.anomalies_found >= 1);
+
+        let alerts = list_alerts(&orchestrator.pool, AlertFilter::default())
+            .await
+            .unwrap();
+        assert!(alerts.iter().any(|alert| {
+            alert
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.extra.get("detector_id").map(String::as_str))
+                == Some("config.ssh-root-login")
+        }));
+    }
+
+    #[tokio::test]
+    async fn test_orchestrator_reports_package_inventory_findings() {
+        let dir = tempfile::tempdir().unwrap();
+        let status = dir.path().join("status");
+        std::fs::write(
+            &status,
+            "Package: openssl\nVersion: 1.0.2u-1\n\nPackage: bash\nVersion: 4.3-1\n",
+        )
+        .unwrap();
+
+        let mut config = memory_sniff_config();
+        config.package_inventory_paths = vec![status.to_string_lossy().into_owned()];
+
+        let orchestrator = SniffOrchestrator::new(config).unwrap();
+        let result = orchestrator.run_once().await.unwrap();
+
+        assert!(result.anomalies_found >= 1);
+
+        let alerts = list_alerts(&orchestrator.pool, AlertFilter::default())
+            .await
+            .unwrap();
+        assert!(alerts.iter().any(|alert| {
+            alert
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.extra.get("detector_id").map(String::as_str))
+                == Some("vuln.legacy-package")
+        }));
     }
 
     #[actix_rt::test]
