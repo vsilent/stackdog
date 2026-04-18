@@ -26,7 +26,7 @@ impl SecurityEvent {
             _ => None,
         }
     }
-    
+
     /// Get the UID if this is a syscall event
     pub fn uid(&self) -> Option<u32> {
         match self {
@@ -34,7 +34,7 @@ impl SecurityEvent {
             _ => None,
         }
     }
-    
+
     /// Get the timestamp
     pub fn timestamp(&self) -> DateTime<Utc> {
         match self {
@@ -135,25 +135,25 @@ pub enum AlertSeverity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_container_event_type_variants() {
         let _start = ContainerEventType::Start;
         let _stop = ContainerEventType::Stop;
     }
-    
+
     #[test]
     fn test_alert_type_variants() {
         let _threat = AlertType::ThreatDetected;
         let _anomaly = AlertType::AnomalyDetected;
     }
-    
+
     #[test]
     fn test_alert_severity_variants() {
         let _info = AlertSeverity::Info;
         let _critical = AlertSeverity::Critical;
     }
-    
+
     #[test]
     fn test_security_event_from_syscall() {
         let syscall_event = SyscallEvent::new(
@@ -162,11 +162,11 @@ mod tests {
             crate::events::syscall::SyscallType::Execve,
             Utc::now(),
         );
-        
+
         let security_event: SecurityEvent = syscall_event.into();
-        
+
         match security_event {
-            SecurityEvent::Syscall(_) => {},
+            SecurityEvent::Syscall(_) => {}
             _ => panic!("Expected Syscall variant"),
         }
     }

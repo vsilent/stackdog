@@ -3,17 +3,17 @@
 //! When `--consume` is enabled, logs are archived to zstd-compressed files,
 //! deduplicated, and then originals are purged to free disk space.
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use chrono::Utc;
-use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::hash::{Hash, Hasher};
-use std::io::{Write, BufWriter};
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
-use crate::sniff::reader::LogEntry;
 use crate::sniff::discovery::LogSourceType;
+use crate::sniff::reader::LogEntry;
 
 /// Result of a consume operation
 #[derive(Debug, Clone, Default)]
@@ -33,8 +33,12 @@ pub struct LogConsumer {
 
 impl LogConsumer {
     pub fn new(output_dir: PathBuf) -> Result<Self> {
-        fs::create_dir_all(&output_dir)
-            .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
+        fs::create_dir_all(&output_dir).with_context(|| {
+            format!(
+                "Failed to create output directory: {}",
+                output_dir.display()
+            )
+        })?;
 
         Ok(Self {
             output_dir,
@@ -58,14 +62,21 @@ impl LogConsumer {
         }
 
         let seen = &mut self.seen_hashes;
-        entries.iter().filter(|entry| {
-            let hash = Self::hash_line(&entry.line);
-            seen.insert(hash)
-        }).collect()
+        entries
+            .iter()
+            .filter(|entry| {
+                let hash = Self::hash_line(&entry.line);
+                seen.insert(hash)
+            })
+            .collect()
     }
 
     /// Write entries to a zstd-compressed file
-    pub fn write_compressed(&self, entries: &[&LogEntry], source_name: &str) -> Result<(PathBuf, u64)> {
+    pub fn write_compressed(
+        &self,
+        entries: &[&LogEntry],
+        source_name: &str,
+    ) -> Result<(PathBuf, u64)> {
         let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
         let safe_name = source_name.replace(['/', '\\', ':', ' '], "_");
         let filename = format!("{}_{}.log.zst", safe_name, timestamp);
@@ -74,18 +85,17 @@ impl LogConsumer {
         let file = File::create(&path)
             .with_context(|| format!("Failed to create archive file: {}", path.display()))?;
 
-        let encoder = zstd::Encoder::new(file, 3)
-            .context("Failed to create zstd encoder")?;
+        let encoder = zstd::Encoder::new(file, 3).context("Failed to create zstd encoder")?;
         let mut writer = BufWriter::new(encoder);
 
         for entry in entries {
             writeln!(writer, "{}\t{}", entry.timestamp.to_rfc3339(), entry.line)?;
         }
 
-        let encoder = writer.into_inner()
+        let encoder = writer
+            .into_inner()
             .map_err(|e| anyhow::anyhow!("Buffer flush error: {}", e))?;
-        encoder.finish()
-            .context("Failed to finish zstd encoding")?;
+        encoder.finish().context("Failed to finish zstd encoding")?;
 
         let compressed_size = fs::metadata(&path)?.len();
         Ok((path, compressed_size))
@@ -112,13 +122,19 @@ impl LogConsumer {
     /// Purge Docker container logs by truncating the JSON log file
     pub async fn purge_docker_logs(container_id: &str) -> Result<u64> {
         // Docker stores logs at /var/lib/docker/containers/<id>/<id>-json.log
-        let log_path = format!("/var/lib/docker/containers/{}/{}-json.log", container_id, container_id);
+        let log_path = format!(
+            "/var/lib/docker/containers/{}/{}-json.log",
+            container_id, container_id
+        );
         let path = Path::new(&log_path);
 
         if path.exists() {
             Self::purge_file(path)
         } else {
-            log::info!("Docker log file not found for container {}, skipping purge", container_id);
+            log::info!(
+                "Docker log file not found for container {}, skipping purge",
+                container_id
+            );
             Ok(0)
         }
     }
@@ -142,9 +158,7 @@ impl LogConsumer {
         let (_, compressed_size) = self.write_compressed(&unique_entries, source_name)?;
 
         let bytes_freed = match source_type {
-            LogSourceType::DockerContainer => {
-                Self::purge_docker_logs(source_path).await?
-            }
+            LogSourceType::DockerContainer => Self::purge_docker_logs(source_path).await?,
             LogSourceType::SystemLog | LogSourceType::CustomFile => {
                 let path = Path::new(source_path);
                 Self::purge_file(path)?
@@ -299,12 +313,10 @@ mod tests {
         let entries = make_entries(&["line 1", "line 2", "line 1"]);
         let log_path_str = log_path.to_string_lossy().to_string();
 
-        let result = consumer.consume(
-            &entries,
-            "app",
-            &LogSourceType::CustomFile,
-            &log_path_str,
-        ).await.unwrap();
+        let result = consumer
+            .consume(&entries, "app", &LogSourceType::CustomFile, &log_path_str)
+            .await
+            .unwrap();
 
         assert_eq!(result.entries_archived, 2); // deduplicated
         assert_eq!(result.duplicates_skipped, 1);
@@ -321,12 +333,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut consumer = LogConsumer::new(dir.path().to_path_buf()).unwrap();
 
-        let result = consumer.consume(
-            &[],
-            "empty",
-            &LogSourceType::SystemLog,
-            "/var/log/test",
-        ).await.unwrap();
+        let result = consumer
+            .consume(&[], "empty", &LogSourceType::SystemLog, "/var/log/test")
+            .await
+            .unwrap();
 
         assert_eq!(result.entries_archived, 0);
         assert_eq!(result.duplicates_skipped, 0);

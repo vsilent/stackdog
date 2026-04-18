@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Container, Row, Col, Card, Spinner, Alert as BootstrapAlert } from 'react-bootstrap';
-import apiService from '../../services/api';
-import webSocketService from '../../services/websocket';
-import { SecurityStatus } from '../../types/security';
+import apiService from '../services/api';
+import webSocketService from '../services/websocket';
+import { SecurityStatus } from '../types/security';
 import SecurityScore from './SecurityScore';
 import AlertPanel from './AlertPanel';
 import ContainerList from './ContainerList';
@@ -42,7 +42,7 @@ const Dashboard: React.FC = () => {
       await webSocketService.connect();
 
       // Subscribe to real-time updates
-      webSocketService.subscribe('stats:updated', (data) => {
+      webSocketService.subscribe('stats:updated', (data: Partial<SecurityStatus>) => {
         setSecurityStatus(prev => prev ? { ...prev, ...data } : null);
       });
 
@@ -79,7 +79,10 @@ const Dashboard: React.FC = () => {
     <Container fluid className="dashboard">
       <Row className="mb-4">
         <Col>
-          <h1 className="dashboard-title">🐕 Stackdog Security Dashboard</h1>
+          <div className="dashboard-topbar">
+            <div className="dashboard-topbar-spacer" />
+            <button className="dashboard-actions-btn" aria-label="Actions menu">...</button>
+          </div>
           <p className="dashboard-subtitle">
             Real-time security monitoring for containers and Linux servers
           </p>
@@ -87,7 +90,7 @@ const Dashboard: React.FC = () => {
       </Row>
 
       {/* Security Score Card */}
-      <Row className="mb-4">
+      <Row id="overview" className="mb-4">
         <Col md={6} lg={3}>
           <SecurityScore score={securityStatus?.overallScore || 0} />
         </Col>
@@ -124,7 +127,7 @@ const Dashboard: React.FC = () => {
       </Row>
 
       {/* Threat Map */}
-      <Row className="mb-4">
+      <Row id="threats" className="mb-4">
         <Col>
           <ThreatMap />
         </Col>
@@ -132,10 +135,10 @@ const Dashboard: React.FC = () => {
 
       {/* Alerts and Containers */}
       <Row>
-        <Col lg={8}>
+        <Col id="alerts" lg={8}>
           <AlertPanel />
         </Col>
-        <Col lg={4}>
+        <Col id="containers" lg={4}>
           <ContainerList />
         </Col>
       </Row>

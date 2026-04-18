@@ -3,7 +3,7 @@
 //! Tests for syscall event types, creation, and builder pattern.
 
 use chrono::Utc;
-use stackdog::events::syscall::{SyscallEvent, SyscallType, SyscallEventBuilder};
+use stackdog::events::syscall::{SyscallEvent, SyscallEventBuilder, SyscallType};
 
 #[test]
 fn test_syscall_type_variants() {
@@ -27,12 +27,12 @@ fn test_syscall_type_variants() {
 fn test_syscall_event_creation() {
     let timestamp = Utc::now();
     let event = SyscallEvent::new(
-        1234,  // pid
-        1000,  // uid
+        1234, // pid
+        1000, // uid
         SyscallType::Execve,
         timestamp,
     );
-    
+
     assert_eq!(event.pid, 1234);
     assert_eq!(event.uid, 1000);
     assert_eq!(event.syscall_type, SyscallType::Execve);
@@ -44,14 +44,9 @@ fn test_syscall_event_creation() {
 #[test]
 fn test_syscall_event_with_container_id() {
     let timestamp = Utc::now();
-    let mut event = SyscallEvent::new(
-        1234,
-        1000,
-        SyscallType::Execve,
-        timestamp,
-    );
+    let mut event = SyscallEvent::new(1234, 1000, SyscallType::Execve, timestamp);
     event.container_id = Some("abc123def456".to_string());
-    
+
     assert_eq!(event.container_id, Some("abc123def456".to_string()));
 }
 
@@ -66,7 +61,7 @@ fn test_syscall_event_builder() {
         .container_id(Some("abc123".to_string()))
         .comm(Some("bash".to_string()))
         .build();
-    
+
     assert_eq!(event.pid, 1234);
     assert_eq!(event.uid, 1000);
     assert_eq!(event.syscall_type, SyscallType::Execve);
@@ -82,7 +77,7 @@ fn test_syscall_event_builder_minimal() {
         .uid(1000)
         .syscall_type(SyscallType::Connect)
         .build();
-    
+
     assert_eq!(event.pid, 1234);
     assert_eq!(event.uid, 1000);
     assert_eq!(event.syscall_type, SyscallType::Connect);
@@ -99,7 +94,7 @@ fn test_syscall_event_builder_default() {
         .uid(2000)
         .syscall_type(SyscallType::Open)
         .build();
-    
+
     assert_eq!(event.pid, 5678);
     assert_eq!(event.uid, 2000);
     assert_eq!(event.syscall_type, SyscallType::Open);
@@ -107,15 +102,10 @@ fn test_syscall_event_builder_default() {
 
 #[test]
 fn test_syscall_event_clone() {
-    let event = SyscallEvent::new(
-        1234,
-        1000,
-        SyscallType::Execve,
-        Utc::now(),
-    );
-    
+    let event = SyscallEvent::new(1234, 1000, SyscallType::Execve, Utc::now());
+
     let cloned = event.clone();
-    
+
     assert_eq!(event.pid, cloned.pid);
     assert_eq!(event.uid, cloned.uid);
     assert_eq!(event.syscall_type, cloned.syscall_type);
@@ -123,13 +113,8 @@ fn test_syscall_event_clone() {
 
 #[test]
 fn test_syscall_event_debug() {
-    let event = SyscallEvent::new(
-        1234,
-        1000,
-        SyscallType::Execve,
-        Utc::now(),
-    );
-    
+    let event = SyscallEvent::new(1234, 1000, SyscallType::Execve, Utc::now());
+
     // Test that Debug trait is implemented
     let debug_str = format!("{:?}", event);
     assert!(debug_str.contains("SyscallEvent"));
@@ -139,25 +124,10 @@ fn test_syscall_event_debug() {
 #[test]
 fn test_syscall_event_partial_eq() {
     let timestamp = Utc::now();
-    let event1 = SyscallEvent::new(
-        1234,
-        1000,
-        SyscallType::Execve,
-        timestamp,
-    );
-    let event2 = SyscallEvent::new(
-        1234,
-        1000,
-        SyscallType::Execve,
-        timestamp,
-    );
-    let event3 = SyscallEvent::new(
-        5678,
-        1000,
-        SyscallType::Execve,
-        timestamp,
-    );
-    
+    let event1 = SyscallEvent::new(1234, 1000, SyscallType::Execve, timestamp);
+    let event2 = SyscallEvent::new(1234, 1000, SyscallType::Execve, timestamp);
+    let event3 = SyscallEvent::new(5678, 1000, SyscallType::Execve, timestamp);
+
     assert_eq!(event1, event2);
     assert_ne!(event1, event3);
 }

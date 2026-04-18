@@ -2,23 +2,23 @@
 //!
 //! REST API and WebSocket endpoints
 
-pub mod security;
 pub mod alerts;
 pub mod containers;
+pub mod logs;
+pub mod security;
 pub mod threats;
 pub mod websocket;
-pub mod logs;
 
 /// Marker struct for module tests
 pub struct ApiMarker;
 
 // Re-export route configurators
-pub use security::configure_routes as configure_security_routes;
 pub use alerts::configure_routes as configure_alerts_routes;
 pub use containers::configure_routes as configure_containers_routes;
+pub use logs::configure_routes as configure_logs_routes;
+pub use security::configure_routes as configure_security_routes;
 pub use threats::configure_routes as configure_threats_routes;
 pub use websocket::configure_routes as configure_websocket_routes;
-pub use logs::configure_routes as configure_logs_routes;
 
 /// Configure all API routes
 pub fn configure_all_routes(cfg: &mut actix_web::web::ServiceConfig) {

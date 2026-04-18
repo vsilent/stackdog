@@ -5,5 +5,10 @@
 #![no_main]
 #![no_std]
 
-#[no_mangle]
-pub fn main() {}
+mod maps;
+mod syscalls;
+
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo<'_>) -> ! {
+    loop {}
+}

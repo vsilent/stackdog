@@ -20,16 +20,20 @@ pub struct ContainerResponse {
 pub struct ContainerSecurityStatus {
     pub state: String,
     pub threats: u32,
-    pub vulnerabilities: u32,
-    pub last_scan: String,
+    pub vulnerabilities: Option<u32>,
+    pub last_scan: Option<String>,
 }
 
 /// Network activity
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkActivity {
-    pub inbound_connections: u32,
-    pub outbound_connections: u32,
-    pub blocked_connections: u32,
+    pub inbound_connections: Option<u32>,
+    pub outbound_connections: Option<u32>,
+    pub blocked_connections: Option<u32>,
+    pub received_bytes: Option<u64>,
+    pub transmitted_bytes: Option<u64>,
+    pub received_packets: Option<u64>,
+    pub transmitted_packets: Option<u64>,
     pub suspicious_activity: bool,
 }
 

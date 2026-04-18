@@ -1,6 +1,6 @@
 //! eBPF kernel compatibility tests
 
-use stackdog::collectors::ebpf::kernel::{KernelInfo, KernelVersion, check_kernel_version};
+use stackdog::collectors::ebpf::kernel::{check_kernel_version, KernelInfo, KernelVersion};
 
 #[test]
 fn test_kernel_version_parse() {
@@ -33,7 +33,7 @@ fn test_kernel_version_comparison() {
     let v1 = KernelVersion::parse("5.10.0").unwrap();
     let v2 = KernelVersion::parse("5.15.0").unwrap();
     let v3 = KernelVersion::parse("4.19.0").unwrap();
-    
+
     assert!(v2 > v1);
     assert!(v1 > v3);
     assert!(v2 > v3);
@@ -44,7 +44,7 @@ fn test_kernel_version_meets_minimum() {
     let current = KernelVersion::parse("5.10.0").unwrap();
     let min_4_19 = KernelVersion::parse("4.19.0").unwrap();
     let min_5_15 = KernelVersion::parse("5.15.0").unwrap();
-    
+
     assert!(current.meets_minimum(&min_4_19));
     assert!(!current.meets_minimum(&min_5_15));
 }
@@ -52,10 +52,10 @@ fn test_kernel_version_meets_minimum() {
 #[test]
 fn test_kernel_info_creation() {
     let info = KernelInfo::new();
-    
+
     #[cfg(target_os = "linux")]
     assert!(info.is_ok());
-    
+
     #[cfg(not(target_os = "linux"))]
     assert!(info.is_err());
 }
@@ -63,13 +63,13 @@ fn test_kernel_info_creation() {
 #[test]
 fn test_kernel_version_check_function() {
     let result = check_kernel_version();
-    
+
     #[cfg(target_os = "linux")]
     {
         // On Linux, should return some version info
         assert!(result.is_ok());
     }
-    
+
     #[cfg(not(target_os = "linux"))]
     {
         // On non-Linux, should indicate unsupported
@@ -89,7 +89,7 @@ fn test_kernel_version_equality() {
     let v1 = KernelVersion::parse("5.10.0").unwrap();
     let v2 = KernelVersion::parse("5.10.0").unwrap();
     let v3 = KernelVersion::parse("5.10.1").unwrap();
-    
+
     assert_eq!(v1, v2);
     assert_ne!(v1, v3);
 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Button, Form, Badge, Modal, Spinner, BootstrapAlert } from 'react-bootstrap';
-import apiService from '../../services/api';
-import { Container, ContainerStatus } from '../../types/containers';
+import { Card, Button, Form, Badge, Modal, Spinner, Alert as BootstrapAlert } from 'react-bootstrap';
+import apiService from '../services/api';
+import { Container, ContainerStatus } from '../types/containers';
 import './ContainerList.css';
 
 const ContainerList: React.FC = () => {
@@ -21,7 +21,7 @@ const ContainerList: React.FC = () => {
     try {
       setLoading(true);
       const data = await apiService.getContainers();
-      setContainers(filterStatus ? data.filter(c => c.status === filterStatus) : data);
+      setContainers(filterStatus ? data.filter((c: Container) => c.status === filterStatus) : data);
     } catch (err) {
       console.error('Error loading containers:', err);
     } finally {
@@ -53,7 +53,7 @@ const ContainerList: React.FC = () => {
   };
 
   const getStatusBadge = (status: ContainerStatus) => {
-    const variants = {
+    const variants: Record<ContainerStatus, string> = {
       Running: 'success',
       Stopped: 'secondary',
       Paused: 'warning',
@@ -77,6 +77,18 @@ const ContainerList: React.FC = () => {
     if (score < 60) return '#f39c12';
     return '#e74c3c';
   };
+
+  const formatCount = (value: number | null) => (value === null ? 'n/a' : value.toLocaleString());
+
+  const formatBytes = (value: number | null) => {
+    if (value === null) return 'n/a';
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+    if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  };
+
+  const formatDateTime = (value: string | null) => (value ? new Date(value).toLocaleString() : 'Unavailable');
 
   return (
     <Card className="container-list">
@@ -107,9 +119,17 @@ const ContainerList: React.FC = () => {
           <div className="container-items">
             {containers.map((container) => (
               <div key={container.id} className="container-item">
+                {(() => {
+                  const isQuarantined =
+                    container.status === 'Quarantined' || container.securityStatus.state === 'Quarantined';
+
+                  return (
+                    <>
                 <div className="container-header">
                   <h5>{container.name}</h5>
-                  <Badge bg={getStatusBadge(container.status)}>{container.status}</Badge>
+                  <Badge bg={getStatusBadge(isQuarantined ? 'Quarantined' : container.status)}>
+                    {isQuarantined ? 'Quarantined' : container.status}
+                  </Badge>
                 </div>
                 <div className="container-details">
                   <p className="mb-1"><strong>Image:</strong> {container.image}</p>
@@ -127,9 +147,9 @@ const ContainerList: React.FC = () => {
                   </p>
                   <div className="network-activity">
                     <small>
-                      📥 {container.networkActivity.inboundConnections} | 
-                      📤 {container.networkActivity.outboundConnections} | 
-                      🚫 {container.networkActivity.blockedConnections}
+                      ⬇ {formatCount(container.networkActivity.receivedPackets)} pkts | 
+                      ⬆ {formatCount(container.networkActivity.transmittedPackets)} pkts | 
+                      🚫 {formatCount(container.networkActivity.blockedConnections)}
                     </small>
                     {container.networkActivity.suspiciousActivity && (
                       <Badge bg="danger" className="ms-2">Suspicious</Badge>
@@ -147,7 +167,7 @@ const ContainerList: React.FC = () => {
                   >
                     Details
                   </Button>
-                  {container.status === 'Running' && (
+                  {!isQuarantined && container.status === 'Running' && (
                     <Button
                       variant="outline-danger"
                       size="sm"
@@ -159,7 +179,7 @@ const ContainerList: React.FC = () => {
                       Quarantine
                     </Button>
                   )}
-                  {container.status === 'Quarantined' && (
+                  {isQuarantined && (
                     <Button
                       variant="outline-success"
                       size="sm"
@@ -169,6 +189,9 @@ const ContainerList: React.FC = () => {
                     </Button>
                   )}
                 </div>
+                    </>
+                  );
+                })()}
               </div>
             ))}
           </div>
@@ -190,8 +213,13 @@ const ContainerList: React.FC = () => {
               <p><strong>Security:</strong> {selectedContainer.securityStatus.state}</p>
               <p><strong>Risk Score:</strong> {selectedContainer.riskScore}</p>
               <p><strong>Threats:</strong> {selectedContainer.securityStatus.threats}</p>
-              <p><strong>Vulnerabilities:</strong> {selectedContainer.securityStatus.vulnerabilities}</p>
-              <p><strong>Last Scan:</strong> {new Date(selectedContainer.securityStatus.lastScan).toLocaleString()}</p>
+              <p><strong>Vulnerabilities:</strong> {selectedContainer.securityStatus.vulnerabilities ?? 'Unavailable'}</p>
+              <p><strong>Last Scan:</strong> {formatDateTime(selectedContainer.securityStatus.lastScan)}</p>
+              <p><strong>RX Traffic:</strong> {formatBytes(selectedContainer.networkActivity.receivedBytes)}</p>
+              <p><strong>TX Traffic:</strong> {formatBytes(selectedContainer.networkActivity.transmittedBytes)}</p>
+              <p><strong>RX Packets:</strong> {formatCount(selectedContainer.networkActivity.receivedPackets)}</p>
+              <p><strong>TX Packets:</strong> {formatCount(selectedContainer.networkActivity.transmittedPackets)}</p>
+              <p><strong>Blocked Connections:</strong> {formatCount(selectedContainer.networkActivity.blockedConnections)}</p>
             </div>
           )}
         </Modal.Body>

@@ -1,9 +1,8 @@
 //! Database connection pool using rusqlite and r2d2
 
-use r2d2::{Pool, ManageConnection};
-use rusqlite::{Connection, Result as RusqliteResult};
 use anyhow::Result;
-use std::fmt;
+use r2d2::{ManageConnection, Pool};
+use rusqlite::{Connection, Result as RusqliteResult};
 
 /// Rusqlite connection manager
 #[derive(Debug)]
@@ -28,7 +27,7 @@ impl ManageConnection for SqliteConnectionManager {
     }
 
     fn is_valid(&self, conn: &mut Self::Connection) -> RusqliteResult<()> {
-        conn.execute_batch("").map_err(|e| e.into())
+        conn.execute_batch("")
     }
 
     fn has_broken(&self, _: &mut Self::Connection) -> bool {
@@ -41,17 +40,15 @@ pub type DbPool = Pool<SqliteConnectionManager>;
 /// Create database connection pool
 pub fn create_pool(database_url: &str) -> Result<DbPool> {
     let manager = SqliteConnectionManager::new(database_url);
-    let pool = Pool::builder()
-        .max_size(10)
-        .build(manager)?;
-    
+    let pool = Pool::builder().max_size(10).build(manager)?;
+
     Ok(pool)
 }
 
 /// Initialize database (create tables if not exist)
 pub fn init_database(pool: &DbPool) -> Result<()> {
     let conn = pool.get()?;
-    
+
     // Create alerts table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS alerts (
@@ -66,7 +63,7 @@ pub fn init_database(pool: &DbPool) -> Result<()> {
         )",
         [],
     )?;
-    
+
     // Create threats table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS threats (
@@ -82,7 +79,7 @@ pub fn init_database(pool: &DbPool) -> Result<()> {
         )",
         [],
     )?;
-    
+
     // Create containers_cache table
     conn.execute(
         "CREATE TABLE IF NOT EXISTS containers_cache (
@@ -97,17 +94,44 @@ pub fn init_database(pool: &DbPool) -> Result<()> {
         )",
         [],
     )?;
-    
+
     // Create indexes for performance
-    let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status)", []);
-    let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity)", []);
-    let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)", []);
-    
-    let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_threats_status ON threats(status)", []);
-    let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_threats_severity ON threats(severity)", []);
-    
-    let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_containers_status ON containers_cache(status)", []);
-    let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_containers_name ON containers_cache(name)", []);
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_alerts_container_id
+         ON alerts(json_extract(metadata, '$.container_id'))
+         WHERE json_valid(metadata)",
+        [],
+    );
+
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_threats_status ON threats(status)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_threats_severity ON threats(severity)",
+        [],
+    );
+
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_containers_status ON containers_cache(status)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_containers_name ON containers_cache(name)",
+        [],
+    );
 
     // Create log_sources table
     conn.execute(
@@ -138,9 +162,81 @@ pub fn init_database(pool: &DbPool) -> Result<()> {
         [],
     )?;
 
-    let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_log_sources_type ON log_sources(source_type)", []);
-    let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_log_summaries_source ON log_summaries(source_id)", []);
-    
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_log_sources_type ON log_sources(source_type)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_log_summaries_source ON log_summaries(source_id)",
+        [],
+    );
+
+    // Create baselines table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS baselines (
+            scope TEXT PRIMARY KEY,
+            sample_count INTEGER NOT NULL,
+            mean TEXT NOT NULL,
+            stddev TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
+        [],
+    )?;
+
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_baselines_updated_at ON baselines(updated_at)",
+        [],
+    );
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS file_integrity_baselines (
+            path TEXT PRIMARY KEY,
+            file_type TEXT NOT NULL,
+            sha256 TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            readonly INTEGER NOT NULL,
+            modified_at INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+        )",
+        [],
+    )?;
+
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_file_integrity_updated_at ON file_integrity_baselines(updated_at)",
+        [],
+    );
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ip_offenses (
+            id TEXT PRIMARY KEY,
+            ip_address TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            container_id TEXT,
+            offense_count INTEGER NOT NULL DEFAULT 1,
+            first_seen TEXT NOT NULL,
+            last_seen TEXT NOT NULL,
+            blocked_until TEXT,
+            status TEXT NOT NULL DEFAULT 'Active',
+            reason TEXT NOT NULL,
+            metadata TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )?;
+
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ip_offenses_ip ON ip_offenses(ip_address)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ip_offenses_status ON ip_offenses(status)",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ip_offenses_last_seen ON ip_offenses(last_seen)",
+        [],
+    );
+
     Ok(())
 }
 
@@ -153,7 +249,7 @@ mod tests {
         let pool = create_pool(":memory:");
         assert!(pool.is_ok());
     }
-    
+
     #[test]
     fn test_init_database() {
         let pool = create_pool(":memory:").unwrap();

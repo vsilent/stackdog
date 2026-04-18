@@ -2,4 +2,6 @@
 target = ["bpfel-unknown-none"]
 
 [target.bpfel-unknown-none]
-rustflags = ["-C", "link-arg=--Bstatic"]
+
+[unstable]
+build-std = ["core"]

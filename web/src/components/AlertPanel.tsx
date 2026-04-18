@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Button, Form, Table, Badge, Modal, Spinner, Alert as BootstrapAlert, Pagination } from 'react-bootstrap';
-import apiService from '../../services/api';
-import webSocketService from '../../services/websocket';
-import { Alert, AlertSeverity, AlertStatus, AlertFilter, AlertStats } from '../../types/alerts';
+import apiService from '../services/api';
+import webSocketService from '../services/websocket';
+import { Alert, AlertSeverity, AlertStatus, AlertFilter, AlertStats } from '../types/alerts';
 import './AlertPanel.css';
 
 const ITEMS_PER_PAGE = 10;
@@ -121,7 +121,7 @@ const AlertPanel: React.FC = () => {
   };
 
   const getSeverityBadge = (severity: AlertSeverity) => {
-    const variants = {
+    const variants: Record<AlertSeverity, string> = {
       Info: 'info',
       Low: 'success',
       Medium: 'warning',
@@ -132,7 +132,7 @@ const AlertPanel: React.FC = () => {
   };
 
   const getStatusBadge = (status: AlertStatus) => {
-    const variants = {
+    const variants: Record<AlertStatus, string> = {
       New: 'primary',
       Acknowledged: 'warning',
       Resolved: 'success',

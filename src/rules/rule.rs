@@ -17,12 +17,12 @@ impl RuleResult {
     pub fn is_match(&self) -> bool {
         matches!(self, RuleResult::Match)
     }
-    
+
     /// Check if this is no match
     pub fn is_no_match(&self) -> bool {
         matches!(self, RuleResult::NoMatch)
     }
-    
+
     /// Check if this is an error
     pub fn is_error(&self) -> bool {
         matches!(self, RuleResult::Error(_))
@@ -43,15 +43,15 @@ impl std::fmt::Display for RuleResult {
 pub trait Rule: Send + Sync {
     /// Evaluate the rule against an event
     fn evaluate(&self, event: &SecurityEvent) -> RuleResult;
-    
+
     /// Get the rule name
     fn name(&self) -> &str;
-    
+
     /// Get the rule priority (lower = higher priority)
     fn priority(&self) -> u32 {
         100
     }
-    
+
     /// Check if the rule is enabled
     fn enabled(&self) -> bool {
         true

@@ -1,118 +1,110 @@
-import { WebSocketService, webSocketService } from '../websocket';
+import { WebSocketService } from '../websocket';
 
 describe('WebSocket Service', () => {
   let ws: WebSocketService;
+  const originalWebSocket = global.WebSocket;
+
+  const createMockSocket = (readyState: number = WebSocket.CONNECTING) => ({
+    onopen: null as (() => void) | null,
+    onmessage: null as ((event: MessageEvent) => void) | null,
+    onclose: null as (() => void) | null,
+    onerror: null as ((event: Event) => void) | null,
+    readyState,
+    send: jest.fn(),
+    close: jest.fn(),
+  });
+
+  const installWebSocketMock = (...sockets: ReturnType<typeof createMockSocket>[]) => {
+    let index = 0;
+    const mockConstructor = jest.fn().mockImplementation(() => {
+      const socket = sockets[Math.min(index, sockets.length - 1)];
+      index += 1;
+      return socket as any;
+    });
+    Object.assign(mockConstructor, {
+      CONNECTING: 0,
+      OPEN: 1,
+      CLOSING: 2,
+      CLOSED: 3,
+    });
+    global.WebSocket = mockConstructor as unknown as typeof WebSocket;
+    return mockConstructor;
+  };
 
   beforeEach(() => {
     ws = new WebSocketService('ws://test-server');
     jest.clearAllMocks();
   });
 
-  test('connects to WebSocket server', async () => {
-    const mockWs = {
-      onopen: null as (() => void) | null,
-      onmessage: null as ((event: any) => void) | null,
-      onclose: null as (() => void) | null,
-      onerror: null as ((event: any) => void) | null,
-      readyState: WebSocket.OPEN,
-      send: jest.fn(),
-      close: jest.fn(),
-    };
+  afterEach(() => {
+    jest.useRealTimers();
+    global.WebSocket = originalWebSocket;
+  });
 
-    jest.spyOn(global, 'WebSocket').mockImplementation(() => mockWs as any);
+  test('connects to WebSocket server', async () => {
+    const mockWs = createMockSocket(WebSocket.OPEN);
+    const webSocketCtor = installWebSocketMock(mockWs);
 
     const connectPromise = ws.connect();
 
-    // Simulate connection open
     mockWs.onopen!();
 
     await connectPromise;
 
-    expect(global.WebSocket).toHaveBeenCalledWith('ws://test-server');
+    expect(webSocketCtor).toHaveBeenCalledWith('ws://test-server');
   });
 
   test('receives real-time updates', async () => {
-    const mockWs = {
-      onopen: null as (() => void) | null,
-      onmessage: null as ((event: any) => void) | null,
-      onclose: null as (() => void) | null,
-      onerror: null as ((event: any) => void) | null,
-      readyState: WebSocket.OPEN,
-      send: jest.fn(),
-      close: jest.fn(),
-    };
-
-    jest.spyOn(global, 'WebSocket').mockImplementation(() => mockWs as any);
+    const mockWs = createMockSocket(WebSocket.OPEN);
+    installWebSocketMock(mockWs);
 
     const handler = jest.fn();
     ws.subscribe('alert:created', handler);
 
-    await ws.connect();
+    const connectPromise = ws.connect();
+    mockWs.onopen!();
+    await connectPromise;
 
-    // Simulate message received
     mockWs.onmessage!({
       data: JSON.stringify({
         type: 'alert:created',
         payload: { id: 'alert-1', message: 'Test' },
       }),
-    });
+    } as MessageEvent);
 
     expect(handler).toHaveBeenCalledWith({ id: 'alert-1', message: 'Test' });
   });
 
   test('handles connection errors', async () => {
-    const mockWs = {
-      onopen: null as (() => void) | null,
-      onmessage: null as ((event: any) => void) | null,
-      onclose: null as (() => void) | null,
-      onerror: null as ((event: any) => void) | null,
-      readyState: WebSocket.CLOSED,
-      send: jest.fn(),
-      close: jest.fn(),
-    };
+    const mockWs = createMockSocket(WebSocket.CLOSED);
+    const webSocketCtor = installWebSocketMock(mockWs);
 
-    jest.spyOn(global, 'WebSocket').mockImplementation(() => mockWs as any);
+    const connectPromise = ws.connect();
+    mockWs.onerror!(new Event('error'));
+    await connectPromise;
 
-    const errorHandler = jest.fn();
+    expect(ws.isConnected()).toBe(false);
 
-    try {
-      await ws.connect();
-    } catch (error) {
-      errorHandler(error);
-    }
+    await ws.connect();
 
-    // Simulate error
-    mockWs.onerror!({ message: 'Connection failed' });
-
-    expect(errorHandler).toHaveBeenCalled();
+    expect(webSocketCtor).toHaveBeenCalledTimes(1);
   });
 
   test('reconnects on disconnect', async () => {
     jest.useFakeTimers();
+    const firstSocket = createMockSocket(WebSocket.OPEN);
+    const secondSocket = createMockSocket(WebSocket.OPEN);
 
-    const mockWs = {
-      onopen: null as (() => void) | null,
-      onmessage: null as ((event: any) => void) | null,
-      onclose: null as (() => void) | null,
-      onerror: null as ((event: any) => void) | null,
-      readyState: WebSocket.OPEN,
-      send: jest.fn(),
-      close: jest.fn(),
-    };
+    const webSocketCtor = installWebSocketMock(firstSocket, secondSocket);
 
-    jest.spyOn(global, 'WebSocket').mockImplementation(() => mockWs as any);
+    const connectPromise = ws.connect();
+    firstSocket.onopen!();
+    await connectPromise;
 
-    await ws.connect();
+    firstSocket.onclose!();
+    jest.advanceTimersByTime(1000);
 
-    // Simulate disconnect
-    mockWs.onclose!();
-
-    // Fast-forward time
-    jest.advanceTimersByTime(2000);
-
-    expect(global.WebSocket).toHaveBeenCalledTimes(2);
-
-    jest.useRealTimers();
+    expect(webSocketCtor).toHaveBeenCalledTimes(2);
   });
 
   test('subscribes to events', () => {
@@ -133,19 +125,12 @@ describe('WebSocket Service', () => {
   });
 
   test('sends messages', async () => {
-    const mockWs = {
-      onopen: null as (() => void) | null,
-      onmessage: null as ((event: any) => void) | null,
-      onclose: null as (() => void) | null,
-      onerror: null as ((event: any) => void) | null,
-      readyState: WebSocket.OPEN,
-      send: jest.fn(),
-      close: jest.fn(),
-    };
+    const mockWs = createMockSocket(WebSocket.OPEN);
+    installWebSocketMock(mockWs);
 
-    jest.spyOn(global, 'WebSocket').mockImplementation(() => mockWs as any);
-
-    await ws.connect();
+    const connectPromise = ws.connect();
+    mockWs.onopen!();
+    await connectPromise;
 
     ws.send('alert:created', { id: 'alert-1' });
 
@@ -155,21 +140,14 @@ describe('WebSocket Service', () => {
   });
 
   test('checks connection status', async () => {
-    const mockWs = {
-      onopen: null as (() => void) | null,
-      onmessage: null as ((event: any) => void) | null,
-      onclose: null as (() => void) | null,
-      onerror: null as ((event: any) => void) | null,
-      readyState: WebSocket.OPEN,
-      send: jest.fn(),
-      close: jest.fn(),
-    };
-
-    jest.spyOn(global, 'WebSocket').mockImplementation(() => mockWs as any);
+    const mockWs = createMockSocket(WebSocket.OPEN);
+    installWebSocketMock(mockWs);
 
     expect(ws.isConnected()).toBe(false);
 
-    await ws.connect();
+    const connectPromise = ws.connect();
+    mockWs.onopen!();
+    await connectPromise;
 
     expect(ws.isConnected()).toBe(true);
   });

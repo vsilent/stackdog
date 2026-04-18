@@ -12,11 +12,30 @@
   min-height: 400px;
 }
 
-.dashboard-title {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #2c3e50;
-  margin-bottom: 0.5rem;
+.dashboard-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.dashboard-topbar-spacer {
+  flex: 1;
+}
+
+.dashboard-actions-btn {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dashboard-actions-btn:hover {
+  background: #f9fafb;
 }
 
 .dashboard-subtitle {
@@ -59,10 +78,6 @@
 @media (max-width: 768px) {
   .dashboard {
     padding: 10px;
-  }
-
-  .dashboard-title {
-    font-size: 1.5rem;
   }
 
   .stat-value {

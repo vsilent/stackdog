@@ -33,4 +33,7 @@ Cargo.lock
 # End of https://www.gitignore.io/api/rust,code
 
 .idea
+*.db
 docs/tasks/
+web/node_modules/
+web/dist/

@@ -8,28 +8,28 @@ use anyhow::Result;
 pub trait FirewallBackend: Send + Sync {
     /// Initialize the backend
     fn initialize(&mut self) -> Result<()>;
-    
+
     /// Check if backend is available
     fn is_available(&self) -> bool;
-    
+
     /// Block an IP address
     fn block_ip(&self, ip: &str) -> Result<()>;
-    
+
     /// Unblock an IP address
     fn unblock_ip(&self, ip: &str) -> Result<()>;
-    
+
     /// Block a port
     fn block_port(&self, port: u16) -> Result<()>;
-    
+
     /// Unblock a port
     fn unblock_port(&self, port: u16) -> Result<()>;
-    
+
     /// Block all traffic for a container
     fn block_container(&self, container_id: &str) -> Result<()>;
-    
+
     /// Unblock all traffic for a container
     fn unblock_container(&self, container_id: &str) -> Result<()>;
-    
+
     /// Get backend name
     fn name(&self) -> &str;
 }
@@ -43,7 +43,11 @@ pub struct FirewallRule {
 }
 
 impl FirewallRule {
-    pub fn new(chain: impl Into<String>, rule_spec: impl Into<String>, table: impl Into<String>) -> Self {
+    pub fn new(
+        chain: impl Into<String>,
+        rule_spec: impl Into<String>,
+        table: impl Into<String>,
+    ) -> Self {
         Self {
             chain: chain.into(),
             rule_spec: rule_spec.into(),
@@ -77,7 +81,11 @@ pub struct FirewallChain {
 }
 
 impl FirewallChain {
-    pub fn new(table: FirewallTable, name: impl Into<String>, chain_type: impl Into<String>) -> Self {
+    pub fn new(
+        table: FirewallTable,
+        name: impl Into<String>,
+        chain_type: impl Into<String>,
+    ) -> Self {
         Self {
             table,
             name: name.into(),

@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Form, Spinner } from 'react-bootstrap';
 import { BarChart, Bar, PieChart, Pie, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
-import apiService from '../../services/api';
-import { Threat, ThreatStatistics } from '../../types/security';
+import apiService from '../services/api';
+import { Threat, ThreatStatistics } from '../types/security';
 import './ThreatMap.css';
 
 const COLORS = ['#e74c3c', '#e67e22', '#f39c12', '#3498db', '#27ae60'];
@@ -36,7 +36,8 @@ const ThreatMap: React.FC = () => {
 
   const getTypeData = () => {
     if (!statistics) return [];
-    return Object.entries(statistics.byType).map(([name, value]) => ({
+    const byType = statistics.byType || {};
+    return Object.entries(byType).map(([name, value]) => ({
       name,
       value,
     }));
@@ -44,7 +45,8 @@ const ThreatMap: React.FC = () => {
 
   const getSeverityData = () => {
     if (!statistics) return [];
-    return Object.entries(statistics.bySeverity).map(([name, value]) => ({
+    const bySeverity = statistics.bySeverity || {};
+    return Object.entries(bySeverity).map(([name, value]) => ({
       name,
       value,
     }));

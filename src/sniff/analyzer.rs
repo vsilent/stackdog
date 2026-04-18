@@ -4,12 +4,17 @@
 //! - OpenAI-compatible API (works with OpenAI, Ollama, vLLM, etc.)
 //! - Local Candle inference (requires `ml` feature)
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 use crate::sniff::reader::LogEntry;
+
+const MAX_PROMPT_LINES: usize = 200;
+const MAX_PROMPT_CHARS: usize = 16_000;
+const MAX_LINE_CHARS: usize = 500;
 
 /// Summary produced by AI analysis of log entries
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,10 +36,16 @@ pub struct LogAnomaly {
     pub description: String,
     pub severity: AnomalySeverity,
     pub sample_line: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detector_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detector_family: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<u8>,
 }
 
 /// Severity of a detected anomaly
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AnomalySeverity {
     Low,
     Medium,
@@ -69,6 +80,17 @@ pub struct OpenAiAnalyzer {
 }
 
 impl OpenAiAnalyzer {
+    fn push_selected_index(
+        selected_indices: &mut Vec<usize>,
+        seen: &mut HashSet<usize>,
+        idx: usize,
+        total_entries: usize,
+    ) {
+        if idx < total_entries && seen.insert(idx) {
+            selected_indices.push(idx);
+        }
+    }
+
     pub fn new(api_url: String, api_key: Option<String>, model: String) -> Self {
         Self {
             api_url,
@@ -79,8 +101,21 @@ impl OpenAiAnalyzer {
     }
 
     fn build_prompt(entries: &[LogEntry]) -> String {
-        let lines: Vec<&str> = entries.iter().map(|e| e.line.as_str()).collect();
-        let log_block = lines.join("\n");
+        let prompt_entries = Self::select_prompt_entries(entries);
+        let included_count = prompt_entries.len();
+        let included_chars: usize = prompt_entries.iter().map(|line| line.len()).sum();
+        let was_truncated = included_count < entries.len();
+        let truncation_note = if was_truncated {
+            format!(
+                "Only {} of {} entries are included below to keep the request bounded. \
+                 Prioritize the included lines when identifying anomalies, but keep the full batch size in mind.\n",
+                included_count,
+                entries.len()
+            )
+        } else {
+            String::new()
+        };
+        let log_block = prompt_entries.join("\n");
 
         format!(
             "Analyze these log entries and provide a JSON response with:\n\
@@ -90,8 +125,106 @@ impl OpenAiAnalyzer {
              4. \"key_events\": Array of important events (max 5)\n\
              5. \"anomalies\": Array of objects with \"description\", \"severity\" (Low/Medium/High/Critical), \"sample_line\"\n\n\
              Respond ONLY with valid JSON, no markdown.\n\n\
-             Log entries:\n{}", log_block
+             Batch metadata:\n\
+             - total_entries: {}\n\
+             - included_entries: {}\n\
+             - included_characters: {}\n\
+             {}\
+             Log entries:\n{}",
+            entries.len(),
+            included_count,
+            included_chars,
+            truncation_note,
+            log_block
         )
+    }
+
+    fn select_prompt_entries(entries: &[LogEntry]) -> Vec<String> {
+        if entries.is_empty() {
+            return Vec::new();
+        }
+
+        let mut selected_indices = Vec::new();
+        let mut seen = HashSet::new();
+
+        for (idx, entry) in entries.iter().enumerate() {
+            if Self::is_priority_line(&entry.line) {
+                Self::push_selected_index(&mut selected_indices, &mut seen, idx, entries.len());
+            }
+        }
+
+        let recent_window_start = entries.len().saturating_sub(MAX_PROMPT_LINES);
+        for idx in recent_window_start..entries.len() {
+            Self::push_selected_index(&mut selected_indices, &mut seen, idx, entries.len());
+        }
+
+        if selected_indices.len() < MAX_PROMPT_LINES {
+            let stride = (entries.len() / MAX_PROMPT_LINES.max(1)).max(1);
+            let mut idx = 0;
+            while idx < entries.len() && selected_indices.len() < MAX_PROMPT_LINES {
+                Self::push_selected_index(&mut selected_indices, &mut seen, idx, entries.len());
+                idx += stride;
+            }
+        }
+
+        selected_indices.sort_unstable();
+
+        let mut prompt_entries = Vec::new();
+        let mut total_chars = 0;
+
+        for idx in selected_indices {
+            if prompt_entries.len() >= MAX_PROMPT_LINES {
+                break;
+            }
+
+            let line = Self::truncate_line(&entries[idx].line);
+            let next_chars = if prompt_entries.is_empty() {
+                line.len()
+            } else {
+                total_chars + 1 + line.len()
+            };
+
+            if next_chars > MAX_PROMPT_CHARS {
+                break;
+            }
+
+            total_chars = next_chars;
+            prompt_entries.push(line);
+        }
+
+        if prompt_entries.is_empty() {
+            prompt_entries.push(Self::truncate_line(&entries[entries.len() - 1].line));
+        }
+
+        prompt_entries
+    }
+
+    fn is_priority_line(line: &str) -> bool {
+        let lower = line.to_ascii_lowercase();
+        [
+            "error",
+            "warn",
+            "fatal",
+            "panic",
+            "exception",
+            "denied",
+            "unauthorized",
+            "failed",
+            "timeout",
+            "attack",
+            "anomaly",
+        ]
+        .iter()
+        .any(|pattern| lower.contains(pattern))
+    }
+
+    fn truncate_line(line: &str) -> String {
+        let truncated: String = line.chars().take(MAX_LINE_CHARS).collect();
+        if truncated.len() == line.len() {
+            truncated
+        } else {
+            format!("{}...[truncated]", truncated)
+        }
     }
 }
 
@@ -173,14 +306,17 @@ fn parse_severity(s: &str) -> AnomalySeverity {
 
 /// Parse the LLM JSON response into a LogSummary
 fn parse_llm_response(source_id: &str, entries: &[LogEntry], raw_json: &str) -> Result<LogSummary> {
-    log::debug!("Parsing LLM response ({} bytes) for source {}", raw_json.len(), source_id);
+    log::debug!(
+        "Parsing LLM response ({} bytes) for source {}",
+        raw_json.len(),
+        source_id
+    );
     log::trace!("Raw LLM response:\n{}", raw_json);
 
-    let analysis: LlmAnalysis = serde_json::from_str(raw_json)
-        .context(format!(
-            "Failed to parse LLM response as JSON. Response starts with: {}",
-            &raw_json[..raw_json.len().min(200)]
-        ))?;
+    let analysis: LlmAnalysis = serde_json::from_str(raw_json).context(format!(
+        "Failed to parse LLM response as JSON. Response starts with: {}",
+        &raw_json[..raw_json.len().min(200)]
+    ))?;
 
     log::debug!(
         "LLM analysis parsed — summary: {:?}, errors: {:?}, warnings: {:?}, anomalies: {}",
@@ -190,12 +326,17 @@ fn parse_llm_response(source_id: &str, entries: &[LogEntry], raw_json: &str) -> 
         analysis.anomalies.as_ref().map(|a| a.len()).unwrap_or(0),
     );
 
-    let anomalies = analysis.anomalies.unwrap_or_default()
+    let anomalies = analysis
+        .anomalies
+        .unwrap_or_default()
         .into_iter()
         .map(|a| LogAnomaly {
             description: a.description.unwrap_or_default(),
             severity: parse_severity(&a.severity.unwrap_or_default()),
             sample_line: a.sample_line.unwrap_or_default(),
+            detector_id: None,
+            detector_family: None,
+            confidence: None,
         })
         .collect();
 
@@ -206,7 +347,9 @@ fn parse_llm_response(source_id: &str, entries: &[LogEntry], raw_json: &str) -> 
         period_start: start,
         period_end: end,
         total_entries: entries.len(),
-        summary_text: analysis.summary.unwrap_or_else(|| "No summary available".into()),
+        summary_text: analysis
+            .summary
+            .unwrap_or_else(|| "No summary available".into()),
         error_count: analysis.error_count.unwrap_or(0),
         warning_count: analysis.warning_count.unwrap_or(0),
         key_events: analysis.key_events.unwrap_or_default(),
@@ -220,8 +363,16 @@ fn entry_time_range(entries: &[LogEntry]) -> (DateTime<Utc>, DateTime<Utc>) {
         let now = Utc::now();
         return (now, now);
     }
-    let start = entries.iter().map(|e| e.timestamp).min().unwrap_or_else(Utc::now);
-    let end = entries.iter().map(|e| e.timestamp).max().unwrap_or_else(Utc::now);
+    let start = entries
+        .iter()
+        .map(|e| e.timestamp)
+        .min()
+        .unwrap_or_else(Utc::now);
+    let end = entries
+        .iter()
+        .map(|e| e.timestamp)
+        .max()
+        .unwrap_or_else(Utc::now);
     (start, end)
 }
 
@@ -247,8 +398,11 @@ impl LogAnalyzer for OpenAiAnalyzer {
         let source_id = &entries[0].source_id;
 
         log::debug!(
-            "Sending {} entries to AI API (model: {}, url: {})",
-            entries.len(), self.model, self.api_url
+            "Sending {} entries to AI API (model: {}, url: {}, prompt_chars: {})",
+            entries.len(),
+            self.model,
+            self.api_url,
+            prompt.len()
         );
         log::trace!("Prompt:\n{}", prompt);
 
@@ -270,11 +424,17 @@ impl LogAnalyzer for OpenAiAnalyzer {
         let url = format!("{}/chat/completions", self.api_url.trim_end_matches('/'));
         log::debug!("POST {}", url);
 
-        let mut req = self.client.post(&url)
+        let mut req = self
+            .client
+            .post(&url)
             .header("Content-Type", "application/json");
 
         if let Some(ref key) = self.api_key {
-            log::debug!("Using API key: {}...{}", &key[..key.len().min(4)], &key[key.len().saturating_sub(4)..]);
+            log::debug!(
+                "Using API key: {}...{}",
+                &key[..key.len().min(4)],
+                &key[key.len().saturating_sub(4)..]
+            );
             req = req.header("Authorization", format!("Bearer {}", key));
         } else {
             log::debug!("No API key configured (using keyless access)");
@@ -295,7 +455,9 @@ impl LogAnalyzer for OpenAiAnalyzer {
             anyhow::bail!("AI API returned status {}: {}", status, body);
         }
 
-        let raw_body = response.text().await
+        let raw_body = response
+            .text()
+            .await
             .context("Failed to read AI API response body")?;
         log::debug!("AI API response body ({} bytes)", raw_body.len());
         log::trace!("AI API raw response:\n{}", raw_body);
@@ -303,12 +465,17 @@ impl LogAnalyzer for OpenAiAnalyzer {
         let completion: ChatCompletionResponse = serde_json::from_str(&raw_body)
             .context("Failed to parse AI API response as ChatCompletion")?;
 
-        let content = completion.choices
+        let content = completion
+            .choices
             .first()
             .map(|c| c.message.content.clone())
             .unwrap_or_default();
 
-        log::debug!("LLM content ({} chars): {}", content.len(), &content[..content.len().min(200)]);
+        log::debug!(
+            "LLM content ({} chars): {}",
+            content.len(),
+            &content[..content.len().min(200)]
+        );
 
         // Extract JSON from response — LLMs often wrap in markdown code fences
         let json_str = extract_json(&content);
@@ -321,16 +488,25 @@ impl LogAnalyzer for OpenAiAnalyzer {
 /// Fallback local analyzer that uses pattern matching (no AI required)
 pub struct PatternAnalyzer;
 
+impl Default for PatternAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PatternAnalyzer {
     pub fn new() -> Self {
         Self
     }
 
     fn count_pattern(entries: &[LogEntry], patterns: &[&str]) -> usize {
-        entries.iter().filter(|e| {
-            let lower = e.line.to_lowercase();
-            patterns.iter().any(|p| lower.contains(p))
-        }).count()
+        entries
+            .iter()
+            .filter(|e| {
+                let lower = e.line.to_lowercase();
+                patterns.iter().any(|p| lower.contains(p))
+            })
+            .count()
     }
 }
 
@@ -353,13 +529,17 @@ impl LogAnalyzer for PatternAnalyzer {
         }
 
         let source_id = &entries[0].source_id;
-        let error_count = Self::count_pattern(entries, &["error", "err", "fatal", "panic", "exception"]);
+        let error_count =
+            Self::count_pattern(entries, &["error", "err", "fatal", "panic", "exception"]);
         let warning_count = Self::count_pattern(entries, &["warn", "warning"]);
         let (start, end) = entry_time_range(entries);
 
         log::debug!(
             "PatternAnalyzer [{}]: {} entries, {} errors, {} warnings",
-            source_id, entries.len(), error_count, warning_count
+            source_id,
+            entries.len(),
+            error_count,
+            warning_count
         );
 
         let mut anomalies = Vec::new();
@@ -368,20 +548,33 @@ impl LogAnalyzer for PatternAnalyzer {
         if error_count > entries.len() / 4 {
             log::debug!(
                 "Error spike detected: {} errors / {} entries (threshold: >25%)",
-                error_count, entries.len()
+                error_count,
+                entries.len()
             );
-            if let Some(sample) = entries.iter().find(|e| e.line.to_lowercase().contains("error")) {
+            if let Some(sample) = entries
+                .iter()
+                .find(|e| e.line.to_lowercase().contains("error"))
+            {
                 anomalies.push(LogAnomaly {
-                    description: format!("High error rate: {} errors in {} entries", error_count, entries.len()),
+                    description: format!(
+                        "High error rate: {} errors in {} entries",
+                        error_count,
+                        entries.len()
+                    ),
                     severity: AnomalySeverity::High,
                     sample_line: sample.line.clone(),
+                    detector_id: None,
+                    detector_family: None,
+                    confidence: None,
                 });
             }
         }
 
         let summary_text = format!(
             "{} log entries analyzed. {} errors, {} warnings detected.",
-            entries.len(), error_count, warning_count
+            entries.len(),
+            error_count,
+            warning_count
         );
 
         Ok(LogSummary {
@@ -404,12 +597,15 @@ mod tests {
     use std::collections::HashMap;
 
     fn make_entries(lines: &[&str]) -> Vec<LogEntry> {
-        lines.iter().map(|line| LogEntry {
-            source_id: "test-source".into(),
-            timestamp: Utc::now(),
-            line: line.to_string(),
-            metadata: HashMap::new(),
-        }).collect()
+        lines
+            .iter()
+            .map(|line| LogEntry {
+                source_id: "test-source".into(),
+                timestamp: Utc::now(),
+                line: line.to_string(),
+                metadata: HashMap::new(),
+            })
+            .collect()
     }
 
     #[test]
@@ -434,6 +630,58 @@ mod tests {
         assert!(prompt.contains("line 1"));
         assert!(prompt.contains("line 2"));
         assert!(prompt.contains("JSON"));
+    }
+
+    #[test]
+    fn test_build_prompt_limits_included_entries() {
+        let entries: Vec<LogEntry> = (0..250)
+            .map(|i| LogEntry {
+                source_id: "test-source".into(),
+                timestamp: Utc::now(),
+                line: format!("INFO line {}", i),
+                metadata: HashMap::new(),
+            })
+            .collect();
+
+        let prompt = OpenAiAnalyzer::build_prompt(&entries);
+
+        assert!(prompt.contains("- total_entries: 250"));
+        assert!(prompt.contains("- included_entries: 200"));
+        assert!(prompt.contains("Only 200 of 250 entries are included below"));
+        assert!(prompt.contains("INFO line 249"));
+        assert!(!prompt.contains("INFO line 0"));
+    }
+
+    #[test]
+    fn test_select_prompt_entries_preserves_priority_lines() {
+        let mut entries: Vec<LogEntry> = (0..260)
+            .map(|i| LogEntry {
+                source_id: "test-source".into(),
+                timestamp: Utc::now(),
+                line: format!("INFO line {}", i),
+                metadata: HashMap::new(),
+            })
+            .collect();
+        entries[10].line = "ERROR: early failure".into();
+
+        let selected = OpenAiAnalyzer::select_prompt_entries(&entries);
+
+        assert_eq!(selected.len(), 200);
+        assert!(selected
+            .iter()
+            .any(|line| line.contains("ERROR: early failure")));
+    }
+
+    #[test]
+    fn test_select_prompt_entries_truncates_long_lines() {
+        let long_line = "x".repeat(MAX_LINE_CHARS + 50);
+        let entries = make_entries(&[&long_line]);
+
+        let selected = OpenAiAnalyzer::select_prompt_entries(&entries);
+
+        assert_eq!(selected.len(), 1);
+        assert!(selected[0].ends_with("...[truncated]"));
+        assert!(selected[0].len() > MAX_LINE_CHARS);
     }
 
     #[test]
@@ -518,7 +766,10 @@ mod tests {
     #[test]
     fn test_extract_json_with_preamble() {
         let input = "Here is the analysis:\n{\"summary\": \"ok\", \"error_count\": 0}";
-        assert_eq!(extract_json(input), r#"{"summary": "ok", "error_count": 0}"#);
+        assert_eq!(
+            extract_json(input),
+            r#"{"summary": "ok", "error_count": 0}"#
+        );
     }
 
     #[test]
@@ -593,11 +844,8 @@ mod tests {
 
     #[test]
     fn test_openai_analyzer_new() {
-        let analyzer = OpenAiAnalyzer::new(
-            "http://localhost:11434/v1".into(),
-            None,
-            "llama3".into(),
-        );
+        let analyzer =
+            OpenAiAnalyzer::new("http://localhost:11434/v1".into(), None, "llama3".into());
         assert_eq!(analyzer.api_url, "http://localhost:11434/v1");
         assert!(analyzer.api_key.is_none());
         assert_eq!(analyzer.model, "llama3");
@@ -605,11 +853,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_openai_analyzer_empty_entries() {
-        let analyzer = OpenAiAnalyzer::new(
-            "http://localhost:11434/v1".into(),
-            None,
-            "llama3".into(),
-        );
+        let analyzer =
+            OpenAiAnalyzer::new("http://localhost:11434/v1".into(), None, "llama3".into());
         let summary = analyzer.summarize(&[]).await.unwrap();
         assert_eq!(summary.total_entries, 0);
     }
@@ -629,6 +874,9 @@ mod tests {
                 description: "Test anomaly".into(),
                 severity: AnomalySeverity::Medium,
                 sample_line: "WARN: something".into(),
+                detector_id: None,
+                detector_family: None,
+                confidence: None,
             }],
         };
         let json = serde_json::to_string(&summary).unwrap();
