@@ -374,6 +374,7 @@ mod tests {
             status: "Running".into(),
             created: String::new(),
             network_settings: HashMap::new(),
+            labels: HashMap::new(),
         }
     }
 

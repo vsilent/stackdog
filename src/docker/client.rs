@@ -80,6 +80,7 @@ impl DockerClient {
             }
             .to_string(),
             created: state.started_at.unwrap_or_default(),
+            labels: config.labels.unwrap_or_default(),
             network_settings: inspect
                 .network_settings
                 .map(|ns| {
@@ -267,6 +268,8 @@ pub struct ContainerInfo {
     pub status: String,
     pub created: String,
     pub network_settings: HashMap<String, String>,
+    /// Docker labels, including any set by docker-compose
+    pub labels: HashMap<String, String>,
 }
 
 /// Container statistics
