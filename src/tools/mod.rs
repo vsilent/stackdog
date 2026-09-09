@@ -53,7 +53,18 @@ impl ToolRegistry {
     }
 
     /// Execute a tool call and return the result
+    ///
+    /// The individual executors label their results with the tool name, which is
+    /// convenient for logging but is not what the API wants back: a `tool`
+    /// message must carry the `id` of the originating call, or the provider
+    /// rejects the whole request. Stamping it here keeps every executor honest.
     pub async fn execute(&self, call: &ToolCall) -> ToolResult {
+        let mut result = self.dispatch(call).await;
+        result.tool_call_id = call.id.clone();
+        result
+    }
+
+    async fn dispatch(&self, call: &ToolCall) -> ToolResult {
         let args = &call.function.arguments;
         match call.function.name.as_str() {
             "check_ip_status" => ip_ban::execute_check_ip_status(&self.pool, args),
@@ -110,6 +121,25 @@ mod tests {
         };
         let result = registry.execute(&call).await;
         assert!(result.content.contains("Unknown tool"));
+        assert_eq!(result.tool_call_id, "call_1");
+    }
+
+    #[actix_rt::test]
+    async fn test_execute_returns_call_id_not_tool_name() {
+        let registry = make_registry();
+        let call = ToolCall {
+            id: "call_abc123".into(),
+            call_type: "function".into(),
+            function: types::FunctionCall {
+                name: "check_ip_status".into(),
+                arguments: r#"{"ip_address":"203.0.113.10"}"#.into(),
+            },
+        };
+
+        // The API rejects the request when a tool message references anything
+        // other than the id of the call it answers.
+        let result = registry.execute(&call).await;
+        assert_eq!(result.tool_call_id, "call_abc123");
     }
 
     #[actix_rt::test]

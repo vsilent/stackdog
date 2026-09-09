@@ -7,7 +7,7 @@ WORKDIR /app
 # The host's binaries are not reachable from here: network_mode host shares the
 # network namespace, not the filesystem, so the CLI must live in this image.
 RUN apt-get update && \
-    apt-get install --no-install-recommends -y ca-certificates nftables iptables && \
+    apt-get install --no-install-recommends -y ca-certificates sqlite3 nftables iptables && \
     rm -rf /var/lib/apt/lists/*
 
 # copy binary and configuration files
