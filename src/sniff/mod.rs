@@ -334,14 +334,22 @@ impl SniffOrchestrator {
             // 5. Report
             log::debug!("Step 5: reporting results...");
             let source = &sources[i];
-            let report = self
+            // Per-source failures are logged and skipped rather than propagated:
+            // one unusable source (a missing firewall backend, an unreadable
+            // container) must not abort the whole pass and starve every source
+            // that comes after it.
+            match self
                 .reporter
                 .report(&summary, Some(&self.pool), Some(source))
-                .await?;
-            result.anomalies_found += report.anomalies_reported;
+                .await
+            {
+                Ok(report) => result.anomalies_found += report.anomalies_reported,
+                Err(err) => log::warn!("Reporting failed for {}: {}", source.path_or_id, err),
+            }
             if let Some(engine) = &self.ip_ban {
-                self.apply_ip_ban(&entries, source, &summary, engine)
-                    .await?;
+                if let Err(err) = self.apply_ip_ban(&entries, source, &summary, engine).await {
+                    log::warn!("IP ban step failed for {}: {}", source.path_or_id, err);
+                }
             }
 
             // 6. Consume (if enabled)

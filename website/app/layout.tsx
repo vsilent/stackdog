@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import type { ReactNode } from 'react';
-import { getSiteUrl } from '@/lib/config';
+import { getGaMeasurementId, getSiteUrl } from '@/lib/config';
+import CookieConsent from '@/components/CookieConsent';
 import Footer from '@/components/Footer';
 import Navbar from '@/components/Navbar';
 import './globals.css';
@@ -66,6 +67,8 @@ interface RootLayoutProps {
 }
 
 export default function RootLayout({ children }: RootLayoutProps) {
+  const gaMeasurementId = getGaMeasurementId();
+
   return (
     <html lang="en" className="bg-slate-950">
       <body className={`${inter.variable} min-h-screen bg-slate-950 font-sans text-slate-100`}>
@@ -76,6 +79,8 @@ export default function RootLayout({ children }: RootLayoutProps) {
           <div className="relative z-10 flex-1">{children}</div>
           <Footer />
         </div>
+
+        <CookieConsent gaMeasurementId={gaMeasurementId} />
       </body>
     </html>
   );

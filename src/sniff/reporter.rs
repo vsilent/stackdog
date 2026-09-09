@@ -97,12 +97,7 @@ impl Reporter {
             }
             let alert = Alert::new(AlertType::AnomalyDetected, alert_severity, message.clone());
 
-            // Deduplicate by description only (ignore source_id and sample_line
-            // which vary across containers and timestamps for the same finding)
-            let dedup_key = format!(
-                "{}:{:?}:{}",
-                "AnomalyDetected", alert_severity, anomaly.description
-            );
+            let dedup_key = dedup_key(anomaly, source);
             if self.deduplicator.borrow_mut().is_duplicate_key(&dedup_key) {
                 log::debug!("Suppressing duplicate alert: {}", anomaly.description);
                 continue;
@@ -189,14 +184,54 @@ impl Reporter {
     }
 }
 
+/// Number of leading words kept from a description signature.
+///
+/// AI-written descriptions drift between passes ("accepts connections from any
+/// IP" / "allowing connections from any IP"), and the drift lands in the tail of
+/// the sentence. Keeping the opening words collapses those variants into one
+/// finding while staying specific enough to tell different findings apart.
+const SIGNATURE_WORDS: usize = 6;
+
+/// Reduce a description to a drift-tolerant signature.
+fn description_signature(description: &str) -> String {
+    description
+        .split(|ch: char| !ch.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .take(SIGNATURE_WORDS)
+        .map(|word| word.to_lowercase())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// Build the key that decides whether a finding is a repeat.
+///
+/// Severity is deliberately excluded: the same finding can come back scored
+/// differently by the model, and that alone should not re-alert. Detector-backed
+/// findings key on their stable `detector_id`; AI-written ones fall back to a
+/// signature of the description.
+fn dedup_key(anomaly: &crate::sniff::analyzer::LogAnomaly, source: Option<&LogSource>) -> String {
+    let finding = match &anomaly.detector_id {
+        Some(detector_id) => detector_id.clone(),
+        None => description_signature(&anomaly.description),
+    };
+    let source_key = source
+        .map(|source| source.path_or_id.as_str())
+        .unwrap_or("unknown-source");
+
+    format!("AnomalyDetected:{}:{}", source_key, finding)
+}
+
 /// Render a log source as something a human can act on: a container name, or a
 /// file path. Falls back to the raw summary source id when no source is known.
 fn describe_source(summary_source_id: &str, source: Option<&LogSource>) -> String {
     match source {
         Some(source) => match source.source_type {
             LogSourceType::DockerContainer => {
+                // Discovery names Docker sources "docker:<name>"; the prefix is
+                // redundant once the label already says "container".
+                let name = source.name.strip_prefix("docker:").unwrap_or(&source.name);
                 let short_id: String = source.path_or_id.chars().take(12).collect();
-                format!("container {} [{}]", source.name, short_id)
+                format!("container {} [{}]", name, short_id)
             }
             LogSourceType::SystemLog | LogSourceType::CustomFile => {
                 format!("file {}", source.path_or_id)
@@ -356,6 +391,115 @@ mod tests {
         );
 
         assert_eq!(describe_source("file-integrity", None), "file-integrity");
+    }
+
+    #[test]
+    fn test_dedup_key_survives_ai_wording_drift() {
+        let source = LogSource::new(
+            LogSourceType::DockerContainer,
+            "0f3b46ca0c16".into(),
+            "docker:redis".into(),
+        );
+        let variants = [
+            "Redis is not protected by authentication and accepts connections from any IP.",
+            "Redis is not protected by authentication and accepts connections from any IP address.",
+            "Redis is not protected by authentication, allowing connections from any IP.",
+        ];
+
+        let keys: Vec<String> = variants
+            .iter()
+            .map(|description| {
+                dedup_key(
+                    &LogAnomaly {
+                        description: (*description).into(),
+                        severity: AnomalySeverity::Critical,
+                        sample_line: "WARNING: Redis does not require authentication".into(),
+                        detector_id: None,
+                        detector_family: None,
+                        confidence: None,
+                        suggested_action: None,
+                    },
+                    Some(&source),
+                )
+            })
+            .collect();
+
+        assert_eq!(keys[0], keys[1]);
+        assert_eq!(keys[0], keys[2]);
+    }
+
+    #[test]
+    fn test_dedup_key_separates_sources_and_findings() {
+        let redis = LogSource::new(
+            LogSourceType::DockerContainer,
+            "0f3b46ca0c16".into(),
+            "docker:redis".into(),
+        );
+        let nginx = LogSource::new(
+            LogSourceType::DockerContainer,
+            "e7a476df6c31".into(),
+            "docker:nginx".into(),
+        );
+        let anomaly = LogAnomaly {
+            description: "Redis is not protected by authentication and accepts connections".into(),
+            severity: AnomalySeverity::Critical,
+            sample_line: "WARNING".into(),
+            detector_id: None,
+            detector_family: None,
+            confidence: None,
+            suggested_action: None,
+        };
+
+        // Same finding, different containers: both deserve their own alert.
+        assert_ne!(
+            dedup_key(&anomaly, Some(&redis)),
+            dedup_key(&anomaly, Some(&nginx))
+        );
+
+        // Different findings on one container stay distinct.
+        let other = LogAnomaly {
+            description: "Multiple instances of EmptyEmailBodyError for different users".into(),
+            ..anomaly.clone()
+        };
+        assert_ne!(
+            dedup_key(&anomaly, Some(&redis)),
+            dedup_key(&other, Some(&redis))
+        );
+    }
+
+    #[test]
+    fn test_dedup_key_prefers_detector_id() {
+        let source = LogSource::new(
+            LogSourceType::DockerContainer,
+            "0f3b46ca0c16".into(),
+            "docker:web".into(),
+        );
+        let key = dedup_key(
+            &LogAnomaly {
+                description: "wording that changes every pass".into(),
+                severity: AnomalySeverity::High,
+                sample_line: "GET /?q=UNION SELECT".into(),
+                detector_id: Some("web.sqli-probe".into()),
+                detector_family: Some("Web".into()),
+                confidence: Some(84),
+                suggested_action: None,
+            },
+            Some(&source),
+        );
+        assert_eq!(key, "AnomalyDetected:0f3b46ca0c16:web.sqli-probe");
+    }
+
+    #[test]
+    fn test_describe_source_strips_docker_prefix() {
+        let source = LogSource::new(
+            LogSourceType::DockerContainer,
+            "a70b8c987795abc".into(),
+            "docker:try".into(),
+        );
+        assert_eq!(
+            describe_source("ignored", Some(&source)),
+            "container try [a70b8c987795]"
+        );
     }
 
     #[tokio::test]

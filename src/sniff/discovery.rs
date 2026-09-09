@@ -122,7 +122,43 @@ pub fn discover_custom_sources(paths: &[String]) -> Vec<LogSource> {
         .collect()
 }
 
+/// Extract a 64-hex container ID from a /proc line, if one is present.
+fn extract_container_id(line: &str) -> Option<String> {
+    line.split(|ch: char| !ch.is_ascii_hexdigit())
+        .find(|token| token.len() == 64)
+        .map(str::to_string)
+}
+
+/// Best-effort detection of the container Stackdog itself runs in.
+///
+/// Reading the hostname is not enough: under `network_mode: host` the container
+/// inherits the host's hostname instead of its own short ID. `/proc/self/cgroup`
+/// and `/proc/self/mountinfo` still carry the full ID in both cgroup v1 and v2.
+/// Returns `None` when running outside a container.
+pub fn self_container_id() -> Option<String> {
+    if let Ok(id) = std::env::var("STACKDOG_SELF_CONTAINER_ID") {
+        let id = id.trim().to_string();
+        if !id.is_empty() {
+            return Some(id);
+        }
+    }
+
+    for path in ["/proc/self/cgroup", "/proc/self/mountinfo"] {
+        let Ok(contents) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        if let Some(id) = contents.lines().find_map(extract_container_id) {
+            return Some(id);
+        }
+    }
+
+    None
+}
+
 /// Discover Docker container log sources
+///
+/// Skips Stackdog's own container: reading our own stdout feeds every internal
+/// error back into the analyzer, which then reports it as a finding.
 pub async fn discover_docker_sources() -> Result<Vec<LogSource>> {
     use crate::docker::DockerClient;
 
@@ -135,8 +171,19 @@ pub async fn discover_docker_sources() -> Result<Vec<LogSource>> {
     };
 
     let containers = client.list_containers(false).await?;
+    let self_id = self_container_id();
     let sources = containers
         .into_iter()
+        .filter(|c| match &self_id {
+            Some(self_id) => {
+                let is_self = self_id.starts_with(&c.id) || c.id.starts_with(self_id.as_str());
+                if is_self {
+                    log::debug!("Skipping own container {} in log discovery", c.id);
+                }
+                !is_self
+            }
+            None => true,
+        })
         .map(|c| {
             let name = format!("docker:{}", c.name);
             LogSource::new(LogSourceType::DockerContainer, c.id, name)
@@ -180,6 +227,31 @@ pub async fn discover_all(extra_paths: &[String]) -> Result<Vec<LogSource>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_extract_container_id_from_proc_lines() {
+        // cgroup v1
+        assert_eq!(
+            extract_container_id(
+                "11:devices:/docker/a70b8c987795e1f3aa1c0d1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f"
+            )
+            .as_deref(),
+            Some("a70b8c987795e1f3aa1c0d1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f")
+        );
+
+        // cgroup v2 / systemd scope
+        assert_eq!(
+            extract_container_id(
+                "0::/system.slice/docker-a70b8c987795e1f3aa1c0d1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f.scope"
+            )
+            .as_deref(),
+            Some("a70b8c987795e1f3aa1c0d1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f")
+        );
+
+        // Nothing container-shaped on a plain host
+        assert_eq!(extract_container_id("0::/init.scope"), None);
+        assert_eq!(extract_container_id("12:pids:/user.slice"), None);
+    }
     use std::io::Write;
     use tempfile::NamedTempFile;
 
