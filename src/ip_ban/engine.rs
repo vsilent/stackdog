@@ -9,6 +9,7 @@ use crate::database::{create_alert, DbPool};
 use crate::ip_ban::config::IpBanConfig;
 use anyhow::Result;
 use chrono::{Duration, Utc};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 #[cfg(target_os = "linux")]
@@ -109,16 +110,30 @@ impl IpBanEngine {
         Ok(true)
     }
 
+    /// Release every ban whose window has passed.
+    ///
+    /// Returns the number of addresses released, not the number of rows: one
+    /// address accumulates an offense row per detection, and `mark_blocked`
+    /// flips all of them, so a single ban expiring leaves several expired rows
+    /// behind. Releasing per row meant one firewall call and one notification
+    /// each — an address banned after five offenses produced five identical
+    /// "Released IP ban" alerts within a second.
     pub async fn unban_expired(&self) -> Result<usize> {
         let now = Utc::now();
         let expired = expired_blocks(&self.pool, now)?;
         let mut released = 0;
+        let mut handled: HashSet<String> = HashSet::new();
 
-        for offense in expired {
+        for offense in &expired {
+            mark_released(&self.pool, &offense.id)?;
+
+            if !handled.insert(offense.ip_address.clone()) {
+                continue;
+            }
+
             #[cfg(target_os = "linux")]
             self.with_firewall_backend(|backend| backend.unblock_ip(&offense.ip_address))?;
 
-            mark_released(&self.pool, &offense.id)?;
             let alert = create_alert(
                 &self.pool,
                 Alert::new(
@@ -337,6 +352,78 @@ mod tests {
         let second = second.unwrap();
         assert!(second);
         assert!(active_block_for_ip(&pool, "192.0.2.44").unwrap().is_some());
+    }
+
+    #[actix_rt::test]
+    async fn test_unban_expired_alerts_once_per_address() {
+        let pool = create_pool(":memory:").unwrap();
+        init_database(&pool).unwrap();
+        let engine = IpBanEngine::new(
+            pool.clone(),
+            IpBanConfig {
+                enabled: true,
+                max_retries: 3,
+                find_time_secs: 300,
+                ban_time_secs: 0,
+                unban_check_interval_secs: 60,
+                trusted_proxy_ranges: vec![],
+            },
+        );
+
+        // Each detection inserts its own row, and mark_blocked flips them all.
+        let mut blocked = Ok(false);
+        for _ in 0..3 {
+            blocked = engine
+                .record_offense(OffenseInput {
+                    ip_address: "192.0.2.77".into(),
+                    source_type: "sniff".into(),
+                    reason: "Repeated ssh login failure".into(),
+                    severity: AlertSeverity::Critical,
+                    container_id: None,
+                    source_path: Some("/var/log/auth.log".into()),
+                    sample_line: Some("Failed password from 192.0.2.77".into()),
+                })
+                .await;
+        }
+
+        #[cfg(target_os = "linux")]
+        if !running_as_root() {
+            assert!(blocked.is_err());
+            return;
+        }
+
+        assert!(blocked.unwrap());
+
+        let offenses = find_recent_offenses(
+            &pool,
+            "192.0.2.77",
+            "sniff",
+            Utc::now() - Duration::minutes(5),
+        )
+        .unwrap();
+        assert_eq!(offenses.len(), 3, "expected one row per detection");
+
+        // Three expired rows, but one address: one release, one alert.
+        let released = engine.unban_expired().await.unwrap();
+        assert_eq!(released, 1);
+
+        let offenses = find_recent_offenses(
+            &pool,
+            "192.0.2.77",
+            "sniff",
+            Utc::now() - Duration::minutes(5),
+        )
+        .unwrap();
+        assert!(offenses
+            .iter()
+            .all(|offense| offense.status == OffenseStatus::Released));
+
+        let alerts = list_alerts(&pool, AlertFilter::default()).await.unwrap();
+        let releases = alerts
+            .iter()
+            .filter(|alert| alert.message.contains("Released IP ban for 192.0.2.77"))
+            .count();
+        assert_eq!(releases, 1);
     }
 
     #[actix_rt::test]
