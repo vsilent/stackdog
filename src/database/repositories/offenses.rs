@@ -212,6 +212,41 @@ pub fn expired_blocks(pool: &DbPool, now: DateTime<Utc>) -> Result<Vec<IpOffense
     Ok(offenses)
 }
 
+/// List offenses, newest first, optionally narrowed to one status.
+pub fn list_offenses(
+    pool: &DbPool,
+    status: Option<OffenseStatus>,
+    limit: usize,
+) -> Result<Vec<IpOffenseRecord>> {
+    let conn = pool.get()?;
+    let base = "SELECT
+            id, ip_address, source_type, container_id, offense_count,
+            first_seen, last_seen, blocked_until, status, reason, metadata
+         FROM ip_offenses";
+
+    let mut offenses = Vec::new();
+    match status {
+        Some(status) => {
+            let mut stmt = conn.prepare(&format!(
+                "{base} WHERE status = ?1 ORDER BY last_seen DESC LIMIT ?2"
+            ))?;
+            let rows = stmt.query_map(params![status.to_string(), limit as i64], map_row)?;
+            for row in rows {
+                offenses.push(row?);
+            }
+        }
+        None => {
+            let mut stmt = conn.prepare(&format!("{base} ORDER BY last_seen DESC LIMIT ?1"))?;
+            let rows = stmt.query_map(params![limit as i64], map_row)?;
+            for row in rows {
+                offenses.push(row?);
+            }
+        }
+    }
+
+    Ok(offenses)
+}
+
 pub fn mark_released(pool: &DbPool, offense_id: &str) -> Result<()> {
     let conn = pool.get()?;
     conn.execute(

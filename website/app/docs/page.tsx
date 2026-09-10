@@ -54,6 +54,8 @@ const apiRows = [
   ['GET', '/api/containers', 'Container inventory and runtime state.'],
   ['GET', '/api/logs/sources', 'Registered log sources for sniffing.'],
   ['GET', '/api/logs/summaries', 'AI-generated log summaries and findings.'],
+  ['GET', '/api/security/bans', 'IP ban offenses. Filter with ?status=active|blocked|released and ?limit=.'],
+  ['DELETE', '/api/security/bans/{ip}', 'Release a ban ahead of its expiry.'],
   ['WS', '/ws', 'Real-time event stream over WebSocket.']
 ] as const;
 

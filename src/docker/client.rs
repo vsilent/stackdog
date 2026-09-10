@@ -55,6 +55,11 @@ impl DockerClient {
     }
 
     /// Get container info by ID
+    ///
+    /// The name comes from the container's own name, not its hostname: under
+    /// `network_mode: host` the hostname is the host's, and otherwise Docker
+    /// defaults it to the short ID — so hostname never yields what `docker ps`
+    /// shows.
     pub async fn get_container_info(&self, container_id: &str) -> Result<ContainerInfo> {
         let inspect = self
             .client
@@ -62,14 +67,17 @@ impl DockerClient {
             .await
             .context("Failed to inspect container")?;
 
+        let name = container_display_name(
+            inspect.name.as_deref(),
+            inspect.config.as_ref().and_then(|c| c.hostname.as_deref()),
+            container_id,
+        );
         let config = inspect.config.unwrap_or_default();
         let state = inspect.state.unwrap_or_default();
 
         Ok(ContainerInfo {
             id: container_id.to_string(),
-            name: config
-                .hostname
-                .unwrap_or_else(|| container_id[..12].to_string()),
+            name,
             image: config.image.unwrap_or_else(|| "unknown".to_string()),
             status: if state.running.unwrap_or(false) {
                 "Running"
@@ -272,6 +280,24 @@ pub struct ContainerInfo {
     pub labels: HashMap<String, String>,
 }
 
+/// Pick the name to show for a container.
+///
+/// Docker returns the inspect name with a leading slash ("/redis"). Falls back
+/// to the hostname, then to the short ID, so there is always something to print.
+fn container_display_name(
+    inspect_name: Option<&str>,
+    hostname: Option<&str>,
+    container_id: &str,
+) -> String {
+    inspect_name
+        .map(|name| name.trim_start_matches('/'))
+        .filter(|name| !name.is_empty())
+        .or(hostname)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| container_id.chars().take(12).collect())
+}
+
 /// Container statistics
 #[derive(Debug, Clone, Default)]
 pub struct ContainerStats {
@@ -287,6 +313,33 @@ pub struct ContainerStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_container_display_name_prefers_real_name() {
+        assert_eq!(
+            container_display_name(Some("/redis"), Some("0f3b46ca0c16"), "0f3b46ca0c16aaaa"),
+            "redis"
+        );
+    }
+
+    #[test]
+    fn test_container_display_name_falls_back_to_hostname_then_id() {
+        // No name from inspect: hostname is the next best thing.
+        assert_eq!(
+            container_display_name(None, Some("web-01"), "0f3b46ca0c16aaaa"),
+            "web-01"
+        );
+
+        // Neither available: short ID keeps the output usable.
+        assert_eq!(
+            container_display_name(None, None, "0f3b46ca0c16aaaa"),
+            "0f3b46ca0c16"
+        );
+        assert_eq!(
+            container_display_name(Some("/"), Some(""), "0f3b46ca0c16aaaa"),
+            "0f3b46ca0c16"
+        );
+    }
 
     #[actix_rt::test]
     async fn test_docker_client_creation() {

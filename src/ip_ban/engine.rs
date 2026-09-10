@@ -76,6 +76,39 @@ impl IpBanEngine {
         Ok(false)
     }
 
+    /// Release a ban ahead of its expiry.
+    ///
+    /// Returns `false` when the address has no active block, so callers can
+    /// answer 404 rather than pretending something was undone.
+    pub async fn unban_ip(&self, ip_address: &str) -> Result<bool> {
+        let Some(offense) = active_block_for_ip(&self.pool, ip_address)? else {
+            return Ok(false);
+        };
+
+        #[cfg(target_os = "linux")]
+        self.with_firewall_backend(|backend| backend.unblock_ip(&offense.ip_address))?;
+
+        mark_released(&self.pool, &offense.id)?;
+        let alert = create_alert(
+            &self.pool,
+            Alert::new(
+                AlertType::SystemEvent,
+                AlertSeverity::Info,
+                format!("Released IP ban for {}", offense.ip_address),
+            )
+            .with_metadata(
+                AlertMetadata::default()
+                    .with_source("ip_ban")
+                    .with_reason(format!("Manually released ban for {}", offense.ip_address)),
+            ),
+        )
+        .await?;
+        self.notify_action_alert(&alert, "STACKDOG_NOTIFY_IP_BAN_ACTIONS", "ip ban release")
+            .await;
+
+        Ok(true)
+    }
+
     pub async fn unban_expired(&self) -> Result<usize> {
         let now = Utc::now();
         let expired = expired_blocks(&self.pool, now)?;
