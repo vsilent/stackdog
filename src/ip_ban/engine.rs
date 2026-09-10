@@ -2,13 +2,14 @@ use crate::alerting::notifications::{dispatch_stored_alert, env_flag_enabled, No
 use crate::alerting::{AlertSeverity, AlertType};
 use crate::database::models::{Alert, AlertMetadata};
 use crate::database::repositories::offenses::{
-    active_block_for_ip, expired_blocks, find_recent_offenses, insert_offense, mark_blocked,
-    mark_released, NewIpOffense, OffenseMetadata,
+    active_block_for_ip, expired_blocks, mark_blocked, mark_released, record_offense_occurrence,
+    NewIpOffense, OffenseMetadata,
 };
 use crate::database::{create_alert, DbPool};
 use crate::ip_ban::config::IpBanConfig;
 use anyhow::Result;
 use chrono::{Duration, Utc};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 #[cfg(target_os = "linux")]
@@ -40,12 +41,26 @@ impl IpBanEngine {
     }
 
     pub async fn record_offense(&self, offense: OffenseInput) -> Result<bool> {
+        // Checked before the offense is even recorded: banning a load balancer
+        // or health checker takes the service down, so protected addresses must
+        // not accumulate offenses that a later config change could act on.
+        if let Ok(parsed) = offense.ip_address.parse::<std::net::Ipv4Addr>() {
+            if self.config.is_allowlisted(&parsed) {
+                log::info!(
+                    "Skipping offense for allowlisted IP {} ({})",
+                    offense.ip_address,
+                    offense.reason
+                );
+                return Ok(false);
+            }
+        }
+
         if active_block_for_ip(&self.pool, &offense.ip_address)?.is_some() {
             return Ok(false);
         }
 
         let now = Utc::now();
-        insert_offense(
+        let offense_count = record_offense_occurrence(
             &self.pool,
             &NewIpOffense {
                 id: Uuid::new_v4().to_string(),
@@ -59,16 +74,10 @@ impl IpBanEngine {
                     sample_line: offense.sample_line.clone(),
                 }),
             },
-        )?;
-
-        let recent = find_recent_offenses(
-            &self.pool,
-            &offense.ip_address,
-            &offense.source_type,
             now - Duration::seconds(self.config.find_time_secs as i64),
         )?;
 
-        if recent.len() as u32 >= self.config.max_retries {
+        if offense_count >= self.config.max_retries {
             self.block_ip(&offense, now).await?;
             return Ok(true);
         }
@@ -76,16 +85,63 @@ impl IpBanEngine {
         Ok(false)
     }
 
+    /// Release a ban ahead of its expiry.
+    ///
+    /// Returns `false` when the address has no active block, so callers can
+    /// answer 404 rather than pretending something was undone.
+    pub async fn unban_ip(&self, ip_address: &str) -> Result<bool> {
+        let Some(offense) = active_block_for_ip(&self.pool, ip_address)? else {
+            return Ok(false);
+        };
+
+        #[cfg(target_os = "linux")]
+        self.with_firewall_backend(|backend| backend.unblock_ip(&offense.ip_address))?;
+
+        mark_released(&self.pool, &offense.id)?;
+        let alert = create_alert(
+            &self.pool,
+            Alert::new(
+                AlertType::SystemEvent,
+                AlertSeverity::Info,
+                format!("Released IP ban for {}", offense.ip_address),
+            )
+            .with_metadata(
+                AlertMetadata::default()
+                    .with_source("ip_ban")
+                    .with_reason(format!("Manually released ban for {}", offense.ip_address)),
+            ),
+        )
+        .await?;
+        self.notify_action_alert(&alert, "STACKDOG_NOTIFY_IP_BAN_ACTIONS", "ip ban release")
+            .await;
+
+        Ok(true)
+    }
+
+    /// Release every ban whose window has passed.
+    ///
+    /// Returns the number of addresses released, not the number of rows: one
+    /// address accumulates an offense row per detection, and `mark_blocked`
+    /// flips all of them, so a single ban expiring leaves several expired rows
+    /// behind. Releasing per row meant one firewall call and one notification
+    /// each — an address banned after five offenses produced five identical
+    /// "Released IP ban" alerts within a second.
     pub async fn unban_expired(&self) -> Result<usize> {
         let now = Utc::now();
         let expired = expired_blocks(&self.pool, now)?;
         let mut released = 0;
+        let mut handled: HashSet<String> = HashSet::new();
 
-        for offense in expired {
+        for offense in &expired {
+            mark_released(&self.pool, &offense.id)?;
+
+            if !handled.insert(offense.ip_address.clone()) {
+                continue;
+            }
+
             #[cfg(target_os = "linux")]
             self.with_firewall_backend(|backend| backend.unblock_ip(&offense.ip_address))?;
 
-            mark_released(&self.pool, &offense.id)?;
             let alert = create_alert(
                 &self.pool,
                 Alert::new(
@@ -180,6 +236,36 @@ impl IpBanEngine {
             .map(str::to_string)
             .collect()
     }
+
+    /// Extract the real client IP from X-Forwarded-For / X-Real-IP headers in a
+    /// log line.  Returns the first public-routable IP found, or None.
+    pub fn extract_forwarded_ip(line: &str) -> Option<String> {
+        let lower = line.to_ascii_lowercase();
+
+        // Try X-Forwarded-For: client, proxy1, proxy2
+        if let Some(start) = lower.find("x-forwarded-for:") {
+            let after = &line[start + 16..];
+            let value = after.split('"').next().unwrap_or(after);
+            for candidate in value.split(',') {
+                let ip = candidate.trim();
+                if is_ipv4(ip) {
+                    return Some(ip.to_string());
+                }
+            }
+        }
+
+        // Try X-Real-IP: <ip>
+        if let Some(start) = lower.find("x-real-ip:") {
+            let after = &line[start + 10..];
+            let value = after.split('"').next().unwrap_or(after);
+            let ip = value.trim();
+            if is_ipv4(ip) {
+                return Some(ip.to_string());
+            }
+        }
+
+        None
+    }
 }
 
 fn is_ipv4(value: &str) -> bool {
@@ -196,6 +282,7 @@ mod tests {
     use crate::database::repositories::offenses::find_recent_offenses;
     use crate::database::repositories::offenses::OffenseStatus;
     use crate::database::{create_pool, init_database, list_alerts, AlertFilter};
+    use crate::ip_ban::config::parse_cidr_list;
     use chrono::Utc;
     #[cfg(target_os = "linux")]
     use std::process::Command;
@@ -231,6 +318,8 @@ mod tests {
                 find_time_secs: 300,
                 ban_time_secs: 60,
                 unban_check_interval_secs: 60,
+                trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
             },
         );
 
@@ -276,6 +365,123 @@ mod tests {
     }
 
     #[actix_rt::test]
+    async fn test_allowlisted_ip_is_never_recorded_or_banned() {
+        let pool = create_pool(":memory:").unwrap();
+        init_database(&pool).unwrap();
+        let engine = IpBanEngine::new(
+            pool.clone(),
+            IpBanConfig {
+                enabled: true,
+                max_retries: 1,
+                find_time_secs: 300,
+                ban_time_secs: 1800,
+                unban_check_interval_secs: 60,
+                trusted_proxy_ranges: vec![],
+                allowlist_ranges: parse_cidr_list("167.233.9.19,10.0.0.0/8"),
+            },
+        );
+
+        for ip in ["167.233.9.19", "10.1.2.3"] {
+            let blocked = engine
+                .record_offense(OffenseInput {
+                    ip_address: ip.into(),
+                    source_type: "sniff".into(),
+                    reason: "Repeated ssh login failure".into(),
+                    severity: AlertSeverity::Critical,
+                    container_id: None,
+                    source_path: Some("/var/log/auth.log".into()),
+                    sample_line: Some(format!("Failed password from {ip}")),
+                })
+                .await
+                .unwrap();
+
+            assert!(!blocked, "{ip} must not be banned");
+            assert!(active_block_for_ip(&pool, ip).unwrap().is_none());
+
+            // No offense row either: a later config change must not be able to
+            // act on history collected while the address was protected.
+            let offenses =
+                find_recent_offenses(&pool, ip, "sniff", Utc::now() - Duration::minutes(5))
+                    .unwrap();
+            assert!(offenses.is_empty(), "{ip} must not accumulate offenses");
+        }
+    }
+
+    #[actix_rt::test]
+    async fn test_unban_expired_alerts_once_per_address() {
+        let pool = create_pool(":memory:").unwrap();
+        init_database(&pool).unwrap();
+        let engine = IpBanEngine::new(
+            pool.clone(),
+            IpBanConfig {
+                enabled: true,
+                max_retries: 3,
+                find_time_secs: 300,
+                ban_time_secs: 0,
+                unban_check_interval_secs: 60,
+                trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
+            },
+        );
+
+        // Detections accumulate on a single row via offense_count.
+        let mut blocked = Ok(false);
+        for _ in 0..3 {
+            blocked = engine
+                .record_offense(OffenseInput {
+                    ip_address: "192.0.2.77".into(),
+                    source_type: "sniff".into(),
+                    reason: "Repeated ssh login failure".into(),
+                    severity: AlertSeverity::Critical,
+                    container_id: None,
+                    source_path: Some("/var/log/auth.log".into()),
+                    sample_line: Some("Failed password from 192.0.2.77".into()),
+                })
+                .await;
+        }
+
+        #[cfg(target_os = "linux")]
+        if !running_as_root() {
+            assert!(blocked.is_err());
+            return;
+        }
+
+        assert!(blocked.unwrap());
+
+        let offenses = find_recent_offenses(
+            &pool,
+            "192.0.2.77",
+            "sniff",
+            Utc::now() - Duration::minutes(5),
+        )
+        .unwrap();
+        assert_eq!(offenses.len(), 1, "expected one row per (ip, source_type)");
+        assert_eq!(offenses[0].offense_count, 3);
+
+        // One address, one release, one alert.
+        let released = engine.unban_expired().await.unwrap();
+        assert_eq!(released, 1);
+
+        let offenses = find_recent_offenses(
+            &pool,
+            "192.0.2.77",
+            "sniff",
+            Utc::now() - Duration::minutes(5),
+        )
+        .unwrap();
+        assert!(offenses
+            .iter()
+            .all(|offense| offense.status == OffenseStatus::Released));
+
+        let alerts = list_alerts(&pool, AlertFilter::default()).await.unwrap();
+        let releases = alerts
+            .iter()
+            .filter(|alert| alert.message.contains("Released IP ban for 192.0.2.77"))
+            .count();
+        assert_eq!(releases, 1);
+    }
+
+    #[actix_rt::test]
     async fn test_unban_expired_releases_ban_and_emits_release_alert() {
         let pool = create_pool(":memory:").unwrap();
         init_database(&pool).unwrap();
@@ -287,6 +493,8 @@ mod tests {
                 find_time_secs: 300,
                 ban_time_secs: 0,
                 unban_check_interval_secs: 60,
+                trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
             },
         );
 

@@ -22,9 +22,12 @@ use crate::sniff::consumer::LogConsumer;
 use crate::sniff::discovery::LogSourceType;
 use crate::sniff::reader::{DockerLogReader, FileLogReader, LogReader};
 use crate::sniff::reporter::Reporter;
+use crate::tools::ToolRegistry;
 use anyhow::Result;
 use chrono::Utc;
+use std::collections::HashMap;
 use std::net::Ipv4Addr;
+use std::sync::Mutex;
 
 /// Main orchestrator for the sniff command
 pub struct SniffOrchestrator {
@@ -33,6 +36,9 @@ pub struct SniffOrchestrator {
     detectors: DetectorRegistry,
     reporter: Reporter,
     ip_ban: Option<IpBanEngine>,
+    tool_registry: ToolRegistry,
+    /// Last AI analysis time per source (prevents re-analyzing every 30s)
+    last_ai_analysis: Mutex<HashMap<String, chrono::DateTime<Utc>>>,
 }
 
 impl SniffOrchestrator {
@@ -63,11 +69,17 @@ impl SniffOrchestrator {
             notification_config =
                 notification_config.with_email_recipients(config.email_recipients.clone());
         }
-        let reporter = Reporter::new(notification_config);
+        let reporter = Reporter::new(notification_config, config.alert_dedup_window_secs);
         let ip_ban_config = IpBanConfig::from_env();
         let ip_ban = ip_ban_config
             .enabled
             .then(|| IpBanEngine::new(pool.clone(), ip_ban_config));
+
+        let tool_registry = ToolRegistry::new(
+            pool.clone(),
+            IpBanConfig::from_env(),
+            DetectorRegistry::default(),
+        );
 
         Ok(Self {
             config,
@@ -75,6 +87,8 @@ impl SniffOrchestrator {
             detectors: DetectorRegistry::default(),
             reporter,
             ip_ban,
+            tool_registry,
+            last_ai_analysis: Mutex::new(HashMap::new()),
         })
     }
 
@@ -91,6 +105,8 @@ impl SniffOrchestrator {
                     self.config.ai_api_url.clone(),
                     self.config.ai_api_key.clone(),
                     self.config.ai_model.clone(),
+                    self.config.ai_timeout_secs,
+                    self.config.ai_max_tokens,
                 ))
             }
             config::AiProvider::Candle => {
@@ -160,12 +176,18 @@ impl SniffOrchestrator {
         match DockerClient::new().await {
             Ok(docker) => {
                 let postures = docker.list_container_postures(true).await?;
+                // Update tool registry with all postures (before filtering)
+                self.tool_registry.set_postures(postures.clone());
+                let filtered: Vec<_> = postures
+                    .into_iter()
+                    .filter(|p| !self.config.trusted_containers.iter().any(|t| t == &p.name))
+                    .collect();
                 self.report_detector_batch(
                     &mut result,
                     "docker-posture",
-                    postures.len(),
+                    filtered.len(),
                     "Docker posture audit",
-                    self.detectors.detect_docker_posture_anomalies(&postures),
+                    self.detectors.detect_docker_posture_anomalies(&filtered),
                 )
                 .await?;
             }
@@ -217,18 +239,82 @@ impl SniffOrchestrator {
 
             // 4. Analyze
             log::debug!("Step 4: analyzing {} entries...", entries.len());
-            let mut summary = match analyzer.summarize(&entries).await {
-                Ok(summary) => summary,
-                Err(err) => {
-                    log::warn!(
-                        "Primary analyzer failed for {}: {}. Falling back to local pattern analyzer.",
-                        reader.source_id(),
-                        err
+
+            // Run built-in detectors first (free, local)
+            let detector_anomalies = self.detectors.detect_log_anomalies(&entries);
+            let has_errors = entries.iter().any(|e| {
+                let lower = e.line.to_lowercase();
+                lower.contains("error") || lower.contains("fatal") || lower.contains("panic")
+            });
+
+            // Skip AI if no errors and no detector findings — use pattern analyzer
+            let skip_ai = !has_errors && detector_anomalies.is_empty();
+
+            // Check per-source cooldown (default 5 minutes between AI calls)
+            let source_key = reader.source_id().to_string();
+            let cooldown_secs = std::env::var("STACKDOG_AI_COOLDOWN_SECS")
+                .ok()
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(300);
+            let within_cooldown = {
+                let last = self.last_ai_analysis.lock().unwrap();
+                last.get(&source_key)
+                    .map(|t| (Utc::now() - t).num_seconds() < cooldown_secs)
+                    .unwrap_or(false)
+            };
+
+            let mut summary = if skip_ai || within_cooldown {
+                if within_cooldown {
+                    log::debug!(
+                        "  Source {} within cooldown ({}s), using pattern analyzer",
+                        source_key,
+                        cooldown_secs
                     );
-                    analyzer::PatternAnalyzer::new().summarize(&entries).await?
+                } else {
+                    log::debug!("  No errors or detector findings, using pattern analyzer");
+                }
+                analyzer::PatternAnalyzer::new().summarize(&entries).await?
+            } else if self.config.ai_tools_enabled {
+                // Tool-use path — single call, no fallback to avoid double billing
+                match analyzer
+                    .summarize_with_tools(&entries, &self.tool_registry)
+                    .await
+                {
+                    Ok(summary) => {
+                        self.last_ai_analysis
+                            .lock()
+                            .unwrap()
+                            .insert(source_key.clone(), Utc::now());
+                        summary
+                    }
+                    Err(err) => {
+                        log::warn!(
+                            "AI analysis failed for {}: {}. Using pattern analyzer.",
+                            reader.source_id(),
+                            err
+                        );
+                        analyzer::PatternAnalyzer::new().summarize(&entries).await?
+                    }
+                }
+            } else {
+                match analyzer.summarize(&entries).await {
+                    Ok(summary) => {
+                        self.last_ai_analysis
+                            .lock()
+                            .unwrap()
+                            .insert(source_key.clone(), Utc::now());
+                        summary
+                    }
+                    Err(err) => {
+                        log::warn!(
+                            "AI analysis failed for {}: {}. Using pattern analyzer.",
+                            reader.source_id(),
+                            err
+                        );
+                        analyzer::PatternAnalyzer::new().summarize(&entries).await?
+                    }
                 }
             };
-            let detector_anomalies = self.detectors.detect_log_anomalies(&entries);
             if !detector_anomalies.is_empty() {
                 summary.key_events.extend(
                     detector_anomalies
@@ -247,12 +333,23 @@ impl SniffOrchestrator {
 
             // 5. Report
             log::debug!("Step 5: reporting results...");
-            let report = self.reporter.report(&summary, Some(&self.pool)).await?;
-            result.anomalies_found += report.anomalies_reported;
             let source = &sources[i];
+            // Per-source failures are logged and skipped rather than propagated:
+            // one unusable source (a missing firewall backend, an unreadable
+            // container) must not abort the whole pass and starve every source
+            // that comes after it.
+            match self
+                .reporter
+                .report(&summary, Some(&self.pool), Some(source))
+                .await
+            {
+                Ok(report) => result.anomalies_found += report.anomalies_reported,
+                Err(err) => log::warn!("Reporting failed for {}: {}", source.path_or_id, err),
+            }
             if let Some(engine) = &self.ip_ban {
-                self.apply_ip_ban(&entries, source, &summary, engine)
-                    .await?;
+                if let Err(err) = self.apply_ip_ban(&entries, source, &summary, engine).await {
+                    log::warn!("IP ban step failed for {}: {}", source.path_or_id, err);
+                }
             }
 
             // 6. Consume (if enabled)
@@ -279,12 +376,22 @@ impl SniffOrchestrator {
             }
 
             // 7. Update read position
+            //
+            // Keyed by path_or_id, not source_id: `LogSource::id` is a fresh UUID
+            // on every discovery pass, so it never matches the stored row and the
+            // offset would silently reset to 0 — re-reading the whole file forever.
             log::debug!("Step 7: saving read position ({})", reader.position());
-            let _ = log_sources_repo::update_read_position(
+            if let Err(err) = log_sources_repo::update_read_position(
                 &self.pool,
-                reader.source_id(),
+                &source.path_or_id,
                 reader.position(),
-            );
+            ) {
+                log::warn!(
+                    "Failed to save read position for {}: {}",
+                    source.path_or_id,
+                    err
+                );
+            }
         }
 
         Ok(result)
@@ -311,14 +418,25 @@ impl SniffOrchestrator {
                 analyzer::AnomalySeverity::Critical => crate::alerting::AlertSeverity::Critical,
             };
 
-            for ip in IpBanEngine::extract_ip_candidates(&anomaly.sample_line) {
-                if !is_public_routable_ipv4(&ip) {
+            // Try sample_line first, fall back to scanning entries
+            let mut ips = IpBanEngine::extract_ip_candidates(&anomaly.sample_line);
+            if ips.is_empty() {
+                for entry in entries {
+                    ips.extend(IpBanEngine::extract_ip_candidates(&entry.line));
+                }
+                ips.sort();
+                ips.dedup();
+            }
+
+            for ip in ips {
+                let target_ip = resolve_ban_target(&ip, &anomaly.sample_line, engine);
+                if !is_public_routable_ipv4(&target_ip) {
                     continue;
                 }
 
                 engine
                     .record_offense(OffenseInput {
-                        ip_address: ip,
+                        ip_address: target_ip,
                         source_type: "sniff".into(),
                         reason: anomaly.description.clone(),
                         severity,
@@ -345,13 +463,14 @@ impl SniffOrchestrator {
             };
 
             for ip in IpBanEngine::extract_ip_candidates(&entry.line) {
-                if !is_public_routable_ipv4(&ip) {
+                let target_ip = resolve_ban_target(&ip, &entry.line, engine);
+                if !is_public_routable_ipv4(&target_ip) {
                     continue;
                 }
 
                 engine
                     .record_offense(OffenseInput {
-                        ip_address: ip,
+                        ip_address: target_ip,
                         source_type: "sniff".into(),
                         reason: reason.into(),
                         severity,
@@ -393,7 +512,10 @@ impl SniffOrchestrator {
                 .collect(),
             anomalies,
         };
-        let report = self.reporter.report(&summary, Some(&self.pool)).await?;
+        let report = self
+            .reporter
+            .report(&summary, Some(&self.pool), None)
+            .await?;
         result.anomalies_found += report.anomalies_reported;
         Ok(())
     }
@@ -442,7 +564,16 @@ pub struct SniffPassResult {
 
 fn should_auto_ban(anomaly: &analyzer::LogAnomaly) -> bool {
     if let Some(detector_id) = anomaly.detector_id.as_deref() {
-        if matches!(detector_id, "web.login-bruteforce" | "web.path-traversal") {
+        if matches!(
+            detector_id,
+            "web.login-bruteforce"
+                | "web.path-traversal"
+                | "web.archive-probe"
+                | "web.sqli-probe"
+                | "web.webshell-probe"
+                | "file.sensitive-access"
+                | "cloud.metadata-ssrf"
+        ) {
             return true;
         }
     }
@@ -455,9 +586,41 @@ fn should_auto_ban(anomaly: &analyzer::LogAnomaly) -> bool {
         "authentication failures",
         "invalid user",
         "path traversal",
+        "credential scanning",
+        "sensitive file access",
+        "sql injection probing",
+        "ssrf",
+        "metadata access",
+        // AI-generated attack descriptions
+        "rejected connection",
+        "coordinated attack",
+        "possible attack",
+        "targeting",
+        "probing",
+        "scanning",
+        "frequent access",
     ]
     .iter()
     .any(|needle| description.contains(needle))
+}
+
+/// If `ip` is a trusted proxy, try to extract the real client IP from
+/// X-Forwarded-For / X-Real-IP in the log line.  Otherwise return `ip` as-is.
+fn resolve_ban_target(ip: &str, line: &str, engine: &IpBanEngine) -> String {
+    let Ok(parsed) = ip.parse::<Ipv4Addr>() else {
+        return ip.to_string();
+    };
+    if engine.config().is_trusted_proxy(&parsed) {
+        if let Some(real_ip) = IpBanEngine::extract_forwarded_ip(line) {
+            log::debug!(
+                "Resolved proxied IP {} -> {} via X-Forwarded-For",
+                ip,
+                real_ip
+            );
+            return real_ip;
+        }
+    }
+    ip.to_string()
 }
 
 fn ssh_auth_failure_offense(line: &str) -> Option<(&'static str, AlertSeverity)> {
@@ -579,6 +742,7 @@ mod tests {
                 detector_id: None,
                 detector_family: None,
                 confidence: None,
+                suggested_action: None,
             }],
         }
     }
@@ -605,6 +769,7 @@ mod tests {
                 detector_id: detector_id.map(str::to_string),
                 detector_family: None,
                 confidence: None,
+                suggested_action: None,
             }],
         }
     }
@@ -635,6 +800,7 @@ mod tests {
             detector_id: Some("web.path-traversal".into()),
             detector_family: Some("Web".into()),
             confidence: Some(82),
+            suggested_action: None,
         };
 
         assert!(should_auto_ban(&anomaly));
@@ -649,6 +815,7 @@ mod tests {
             detector_id: Some("secrets.log-leakage".into()),
             detector_family: Some("Secrets".into()),
             confidence: Some(92),
+            suggested_action: None,
         };
 
         assert!(!should_auto_ban(&anomaly));
@@ -726,6 +893,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_orchestrator_persists_read_position_across_passes() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("position.log");
+        {
+            let mut f = std::fs::File::create(&log_path).unwrap();
+            writeln!(f, "INFO: service started").unwrap();
+            writeln!(f, "ERROR: connection failed").unwrap();
+        }
+        let path_str = log_path.to_string_lossy().to_string();
+
+        let mut config = SniffConfig::from_env_and_args(config::SniffArgs {
+            once: true,
+            consume: false,
+            output: "./stackdog-logs/",
+            sources: Some(&path_str),
+            interval: 30,
+            ai_provider: Some("candle"),
+            ai_model: None,
+            ai_api_url: None,
+            slack_webhook: None,
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
+        });
+        config.database_url = ":memory:".into();
+
+        let orchestrator = SniffOrchestrator::new(config).unwrap();
+        orchestrator.run_once().await.unwrap();
+
+        let file_len = std::fs::metadata(&log_path).unwrap().len();
+        let saved = log_sources_repo::get_log_source_by_path(&orchestrator.pool, &path_str)
+            .unwrap()
+            .expect("source should be registered");
+        assert_eq!(
+            saved.last_read_position, file_len,
+            "read position must persist so the next pass does not re-read the file"
+        );
+
+        {
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&log_path)
+                .unwrap();
+            writeln!(f, "WARN: retry in 5s").unwrap();
+        }
+
+        orchestrator.run_once().await.unwrap();
+
+        let grown_len = std::fs::metadata(&log_path).unwrap().len();
+        let saved = log_sources_repo::get_log_source_by_path(&orchestrator.pool, &path_str)
+            .unwrap()
+            .expect("source should still be registered");
+        assert!(grown_len > file_len);
+        assert_eq!(saved.last_read_position, grown_len);
+    }
+
+    #[tokio::test]
     async fn test_orchestrator_applies_builtin_detectors_to_log_entries() {
         use std::io::Write;
         let dir = tempfile::tempdir().unwrap();
@@ -782,6 +1010,8 @@ mod tests {
                 find_time_secs: 300,
                 ban_time_secs: 60,
                 unban_check_interval_secs: 60,
+                trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
             },
         );
         let source = LogSource::new(
@@ -815,7 +1045,9 @@ mod tests {
             Utc::now() - chrono::Duration::minutes(5),
         )
         .unwrap();
-        assert_eq!(offenses.len(), 5);
+        // One row per (ip, source_type), with the tally in offense_count.
+        assert_eq!(offenses.len(), 1);
+        assert_eq!(offenses[0].offense_count, 5);
         assert!(offenses.iter().all(|offense| {
             offense
                 .metadata
@@ -921,6 +1153,8 @@ mod tests {
                 find_time_secs: 300,
                 ban_time_secs: 60,
                 unban_check_interval_secs: 60,
+                trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
             },
         );
         let summary = make_summary(
@@ -966,6 +1200,8 @@ mod tests {
                 find_time_secs: 300,
                 ban_time_secs: 60,
                 unban_check_interval_secs: 60,
+                trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
             },
         );
         let summary = make_summary(
@@ -1035,6 +1271,8 @@ mod tests {
                 find_time_secs: 300,
                 ban_time_secs: 60,
                 unban_check_interval_secs: 60,
+                trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
             },
         );
         let summary = make_detector_summary(
@@ -1071,6 +1309,8 @@ mod tests {
                 find_time_secs: 300,
                 ban_time_secs: 60,
                 unban_check_interval_secs: 60,
+                trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
             },
         );
         let summary = make_summary(

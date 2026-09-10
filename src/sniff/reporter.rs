@@ -3,24 +3,34 @@
 //! Converts log summaries and anomalies into alerts, then dispatches
 //! them via the existing notification channels.
 
+use std::cell::RefCell;
+
 use crate::alerting::alert::{Alert, AlertSeverity, AlertType};
+use crate::alerting::dedup::{AlertDeduplicator, DedupConfig};
 use crate::alerting::notifications::{NotificationConfig, NotificationResult};
 use crate::database::connection::DbPool;
 use crate::database::models::{Alert as StoredAlert, AlertMetadata};
 use crate::database::repositories::alerts::create_alert;
 use crate::database::repositories::log_sources;
 use crate::sniff::analyzer::{AnomalySeverity, LogSummary};
+use crate::sniff::discovery::{LogSource, LogSourceType};
 use anyhow::Result;
 
 /// Reports log analysis results to alert channels and persists summaries
 pub struct Reporter {
     notification_config: NotificationConfig,
+    deduplicator: RefCell<AlertDeduplicator>,
 }
 
 impl Reporter {
-    pub fn new(notification_config: NotificationConfig) -> Self {
+    /// Build a reporter that suppresses repeats of the same finding for
+    /// `dedup_window_secs` (see `STACKDOG_ALERT_DEDUP_WINDOW_SECS`).
+    pub fn new(notification_config: NotificationConfig, dedup_window_secs: u64) -> Self {
         Self {
             notification_config,
+            deduplicator: RefCell::new(AlertDeduplicator::new(
+                DedupConfig::default().with_window_seconds(dedup_window_secs),
+            )),
         }
     }
 
@@ -35,11 +45,17 @@ impl Reporter {
     }
 
     /// Report a log summary: persist to DB and send anomaly alerts
+    ///
+    /// `source` carries the human-readable identity of the log source. It is
+    /// optional because synthetic summaries (file integrity, package audit)
+    /// already use a readable `source_id`.
     pub async fn report(
         &self,
         summary: &LogSummary,
         pool: Option<&DbPool>,
+        source: Option<&LogSource>,
     ) -> Result<ReportResult> {
+        let source_label = describe_source(&summary.source_id, source);
         let mut alerts_sent = 0;
 
         // Persist summary to database
@@ -72,16 +88,41 @@ impl Reporter {
                 anomaly.description
             );
 
-            let message = format!(
+            let mut message = format!(
                 "[Log Sniff] {} — Source: {} | Sample: {}",
-                anomaly.description, summary.source_id, anomaly.sample_line
+                anomaly.description, source_label, anomaly.sample_line
             );
+            if let Some(ref action) = anomaly.suggested_action {
+                message.push_str(&format!("\nSuggested: {}", action));
+            }
             let alert = Alert::new(AlertType::AnomalyDetected, alert_severity, message.clone());
 
+            let dedup_key = dedup_key(anomaly, source);
+            if self.deduplicator.borrow_mut().is_duplicate_key(&dedup_key) {
+                log::debug!("Suppressing duplicate alert: {}", anomaly.description);
+                continue;
+            }
+
             if let Some(pool) = pool {
+                // Record the stable identity (path or container ID), not the
+                // per-pass UUID in `summary.source_id`, so stored alerts can be
+                // joined back to `log_sources.path_or_id`.
                 let mut metadata = AlertMetadata::default()
-                    .with_source(summary.source_id.clone())
+                    .with_source(
+                        source
+                            .map(|s| s.path_or_id.clone())
+                            .unwrap_or_else(|| summary.source_id.clone()),
+                    )
                     .with_reason(anomaly.description.clone());
+                if let Some(s) = source {
+                    metadata.extra.insert("source_name".into(), s.name.clone());
+                    metadata
+                        .extra
+                        .insert("source_type".into(), s.source_type.to_string());
+                    if s.source_type == LogSourceType::DockerContainer {
+                        metadata = metadata.with_container_id(s.path_or_id.clone());
+                    }
+                }
                 if let Some(detector_id) = &anomaly.detector_id {
                     metadata
                         .extra
@@ -106,7 +147,10 @@ impl Reporter {
                 .await?;
             }
 
-            // Route to appropriate notification channels
+            // Route to appropriate notification channels (respecting minimum severity)
+            if alert_severity < self.notification_config.minimum_severity() {
+                continue;
+            }
             let channels = self
                 .notification_config
                 .configured_channels_for_severity(alert_severity);
@@ -125,7 +169,7 @@ impl Reporter {
         // Log summary to console
         log::info!(
             "📊 Log Summary [{}]: {} entries, {} errors, {} warnings, {} anomalies",
-            summary.source_id,
+            source_label,
             summary.total_entries,
             summary.error_count,
             summary.warning_count,
@@ -137,6 +181,63 @@ impl Reporter {
             notifications_sent: alerts_sent,
             summary_persisted: pool.is_some(),
         })
+    }
+}
+
+/// Number of leading words kept from a description signature.
+///
+/// AI-written descriptions drift between passes ("accepts connections from any
+/// IP" / "allowing connections from any IP"), and the drift lands in the tail of
+/// the sentence. Keeping the opening words collapses those variants into one
+/// finding while staying specific enough to tell different findings apart.
+const SIGNATURE_WORDS: usize = 6;
+
+/// Reduce a description to a drift-tolerant signature.
+fn description_signature(description: &str) -> String {
+    description
+        .split(|ch: char| !ch.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .take(SIGNATURE_WORDS)
+        .map(|word| word.to_lowercase())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// Build the key that decides whether a finding is a repeat.
+///
+/// Severity is deliberately excluded: the same finding can come back scored
+/// differently by the model, and that alone should not re-alert. Detector-backed
+/// findings key on their stable `detector_id`; AI-written ones fall back to a
+/// signature of the description.
+fn dedup_key(anomaly: &crate::sniff::analyzer::LogAnomaly, source: Option<&LogSource>) -> String {
+    let finding = match &anomaly.detector_id {
+        Some(detector_id) => detector_id.clone(),
+        None => description_signature(&anomaly.description),
+    };
+    let source_key = source
+        .map(|source| source.path_or_id.as_str())
+        .unwrap_or("unknown-source");
+
+    format!("AnomalyDetected:{}:{}", source_key, finding)
+}
+
+/// Render a log source as something a human can act on: a container name, or a
+/// file path. Falls back to the raw summary source id when no source is known.
+fn describe_source(summary_source_id: &str, source: Option<&LogSource>) -> String {
+    match source {
+        Some(source) => match source.source_type {
+            LogSourceType::DockerContainer => {
+                // Discovery names Docker sources "docker:<name>"; the prefix is
+                // redundant once the label already says "container".
+                let name = source.name.strip_prefix("docker:").unwrap_or(&source.name);
+                let short_id: String = source.path_or_id.chars().take(12).collect();
+                format!("container {} [{}]", name, short_id)
+            }
+            LogSourceType::SystemLog | LogSourceType::CustomFile => {
+                format!("file {}", source.path_or_id)
+            }
+        },
+        None => summary_source_id.to_string(),
     }
 }
 
@@ -192,9 +293,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_report_no_anomalies() {
-        let reporter = Reporter::new(NotificationConfig::default());
+        let reporter = Reporter::new(NotificationConfig::default(), 300);
         let summary = make_summary(vec![]);
-        let result = reporter.report(&summary, None).await.unwrap();
+        let result = reporter.report(&summary, None, None).await.unwrap();
         assert_eq!(result.anomalies_reported, 0);
         assert_eq!(result.notifications_sent, 0);
         assert!(!result.summary_persisted);
@@ -202,7 +303,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_report_with_anomalies_sends_alerts() {
-        let reporter = Reporter::new(NotificationConfig::default());
+        let reporter = Reporter::new(NotificationConfig::default(), 300);
         let summary = make_summary(vec![LogAnomaly {
             description: "High error rate".into(),
             severity: AnomalySeverity::High,
@@ -210,9 +311,10 @@ mod tests {
             detector_id: None,
             detector_family: None,
             confidence: None,
+            suggested_action: None,
         }]);
 
-        let result = reporter.report(&summary, None).await.unwrap();
+        let result = reporter.report(&summary, None, None).await.unwrap();
         assert_eq!(result.anomalies_reported, 1);
         assert_eq!(result.notifications_sent, 1);
     }
@@ -222,10 +324,10 @@ mod tests {
         let pool = create_pool(":memory:").unwrap();
         init_database(&pool).unwrap();
 
-        let reporter = Reporter::new(NotificationConfig::default());
+        let reporter = Reporter::new(NotificationConfig::default(), 300);
         let summary = make_summary(vec![]);
 
-        let result = reporter.report(&summary, Some(&pool)).await.unwrap();
+        let result = reporter.report(&summary, Some(&pool), None).await.unwrap();
         assert!(result.summary_persisted);
 
         // Verify summary was stored
@@ -239,7 +341,7 @@ mod tests {
         let pool = create_pool(":memory:").unwrap();
         init_database(&pool).unwrap();
 
-        let reporter = Reporter::new(NotificationConfig::default());
+        let reporter = Reporter::new(NotificationConfig::default(), 300);
         let summary = make_summary(vec![LogAnomaly {
             description: "Potential SQL injection probing detected".into(),
             severity: AnomalySeverity::High,
@@ -247,9 +349,10 @@ mod tests {
             detector_id: Some("web.sqli-probe".into()),
             detector_family: Some("Web".into()),
             confidence: Some(84),
+            suggested_action: None,
         }]);
 
-        reporter.report(&summary, Some(&pool)).await.unwrap();
+        reporter.report(&summary, Some(&pool), None).await.unwrap();
 
         let alerts = list_alerts(&pool, AlertFilter::default()).await.unwrap();
         assert_eq!(alerts.len(), 1);
@@ -265,9 +368,183 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_describe_source_renders_container_and_file() {
+        let container = LogSource::new(
+            LogSourceType::DockerContainer,
+            "a6f2ec2d90294889".into(),
+            "mailer".into(),
+        );
+        assert_eq!(
+            describe_source("ignored", Some(&container)),
+            "container mailer [a6f2ec2d9029]"
+        );
+
+        let file = LogSource::new(
+            LogSourceType::SystemLog,
+            "/var/log/syslog".into(),
+            "syslog".into(),
+        );
+        assert_eq!(
+            describe_source("ignored", Some(&file)),
+            "file /var/log/syslog"
+        );
+
+        assert_eq!(describe_source("file-integrity", None), "file-integrity");
+    }
+
+    #[test]
+    fn test_dedup_key_survives_ai_wording_drift() {
+        let source = LogSource::new(
+            LogSourceType::DockerContainer,
+            "0f3b46ca0c16".into(),
+            "docker:redis".into(),
+        );
+        let variants = [
+            "Redis is not protected by authentication and accepts connections from any IP.",
+            "Redis is not protected by authentication and accepts connections from any IP address.",
+            "Redis is not protected by authentication, allowing connections from any IP.",
+        ];
+
+        let keys: Vec<String> = variants
+            .iter()
+            .map(|description| {
+                dedup_key(
+                    &LogAnomaly {
+                        description: (*description).into(),
+                        severity: AnomalySeverity::Critical,
+                        sample_line: "WARNING: Redis does not require authentication".into(),
+                        detector_id: None,
+                        detector_family: None,
+                        confidence: None,
+                        suggested_action: None,
+                    },
+                    Some(&source),
+                )
+            })
+            .collect();
+
+        assert_eq!(keys[0], keys[1]);
+        assert_eq!(keys[0], keys[2]);
+    }
+
+    #[test]
+    fn test_dedup_key_separates_sources_and_findings() {
+        let redis = LogSource::new(
+            LogSourceType::DockerContainer,
+            "0f3b46ca0c16".into(),
+            "docker:redis".into(),
+        );
+        let nginx = LogSource::new(
+            LogSourceType::DockerContainer,
+            "e7a476df6c31".into(),
+            "docker:nginx".into(),
+        );
+        let anomaly = LogAnomaly {
+            description: "Redis is not protected by authentication and accepts connections".into(),
+            severity: AnomalySeverity::Critical,
+            sample_line: "WARNING".into(),
+            detector_id: None,
+            detector_family: None,
+            confidence: None,
+            suggested_action: None,
+        };
+
+        // Same finding, different containers: both deserve their own alert.
+        assert_ne!(
+            dedup_key(&anomaly, Some(&redis)),
+            dedup_key(&anomaly, Some(&nginx))
+        );
+
+        // Different findings on one container stay distinct.
+        let other = LogAnomaly {
+            description: "Multiple instances of EmptyEmailBodyError for different users".into(),
+            ..anomaly.clone()
+        };
+        assert_ne!(
+            dedup_key(&anomaly, Some(&redis)),
+            dedup_key(&other, Some(&redis))
+        );
+    }
+
+    #[test]
+    fn test_dedup_key_prefers_detector_id() {
+        let source = LogSource::new(
+            LogSourceType::DockerContainer,
+            "0f3b46ca0c16".into(),
+            "docker:web".into(),
+        );
+        let key = dedup_key(
+            &LogAnomaly {
+                description: "wording that changes every pass".into(),
+                severity: AnomalySeverity::High,
+                sample_line: "GET /?q=UNION SELECT".into(),
+                detector_id: Some("web.sqli-probe".into()),
+                detector_family: Some("Web".into()),
+                confidence: Some(84),
+                suggested_action: None,
+            },
+            Some(&source),
+        );
+        assert_eq!(key, "AnomalyDetected:0f3b46ca0c16:web.sqli-probe");
+    }
+
+    #[test]
+    fn test_describe_source_strips_docker_prefix() {
+        let source = LogSource::new(
+            LogSourceType::DockerContainer,
+            "a70b8c987795abc".into(),
+            "docker:try".into(),
+        );
+        assert_eq!(
+            describe_source("ignored", Some(&source)),
+            "container try [a70b8c987795]"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_report_records_stable_source_identity() {
+        let pool = create_pool(":memory:").unwrap();
+        init_database(&pool).unwrap();
+
+        let source = LogSource::new(
+            LogSourceType::DockerContainer,
+            "a6f2ec2d90294889".into(),
+            "mailer".into(),
+        );
+        let reporter = Reporter::new(NotificationConfig::default(), 300);
+        let summary = make_summary(vec![LogAnomaly {
+            description: "Multiple instances of EmptyEmailBodyError".into(),
+            severity: AnomalySeverity::Critical,
+            sample_line: "ERROR EmptyEmailBodyError".into(),
+            detector_id: None,
+            detector_family: None,
+            confidence: None,
+            suggested_action: None,
+        }]);
+
+        reporter
+            .report(&summary, Some(&pool), Some(&source))
+            .await
+            .unwrap();
+
+        let alerts = list_alerts(&pool, AlertFilter::default()).await.unwrap();
+        assert_eq!(alerts.len(), 1);
+        assert!(alerts[0]
+            .message
+            .contains("container mailer [a6f2ec2d9029]"));
+        let metadata = alerts[0].metadata.as_ref().unwrap();
+        assert_eq!(metadata.source.as_deref(), Some("a6f2ec2d90294889"));
+        assert_eq!(metadata.container_id.as_deref(), Some("a6f2ec2d90294889"));
+        assert_eq!(
+            metadata.extra.get("source_name").map(String::as_str),
+            Some("mailer")
+        );
+    }
+
     #[tokio::test]
     async fn test_report_multiple_anomalies() {
-        let reporter = Reporter::new(NotificationConfig::default());
+        let reporter = Reporter::new(NotificationConfig::default(), 300);
         let summary = make_summary(vec![
             LogAnomaly {
                 description: "Error spike".into(),
@@ -276,6 +553,7 @@ mod tests {
                 detector_id: None,
                 detector_family: None,
                 confidence: None,
+                suggested_action: None,
             },
             LogAnomaly {
                 description: "Unusual pattern".into(),
@@ -284,10 +562,11 @@ mod tests {
                 detector_id: None,
                 detector_family: None,
                 confidence: None,
+                suggested_action: None,
             },
         ]);
 
-        let result = reporter.report(&summary, None).await.unwrap();
+        let result = reporter.report(&summary, None, None).await.unwrap();
         assert_eq!(result.anomalies_reported, 2);
         assert_eq!(result.notifications_sent, 2);
     }
@@ -295,10 +574,10 @@ mod tests {
     #[tokio::test]
     async fn test_reporter_new() {
         let config = NotificationConfig::default();
-        let reporter = Reporter::new(config);
+        let reporter = Reporter::new(config, 300);
         // Just ensure it constructs without error
         let summary = make_summary(vec![]);
-        let result = reporter.report(&summary, None).await;
+        let result = reporter.report(&summary, None, None).await;
         assert!(result.is_ok());
     }
 
@@ -306,6 +585,7 @@ mod tests {
     async fn test_report_does_not_count_delivery_failures_as_sent() {
         let reporter = Reporter::new(
             NotificationConfig::default().with_slack_webhook("http://127.0.0.1:1".into()),
+            300,
         );
         let summary = make_summary(vec![LogAnomaly {
             description: "High error rate".into(),
@@ -314,9 +594,10 @@ mod tests {
             detector_id: None,
             detector_family: None,
             confidence: None,
+            suggested_action: None,
         }]);
 
-        let result = reporter.report(&summary, None).await.unwrap();
+        let result = reporter.report(&summary, None, None).await.unwrap();
         assert_eq!(result.anomalies_reported, 1);
         assert_eq!(result.notifications_sent, 1);
     }

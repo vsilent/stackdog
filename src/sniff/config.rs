@@ -3,6 +3,17 @@
 use std::env;
 use std::path::PathBuf;
 
+/// Default AI request timeout. Generous because local models on modest
+/// hardware can take minutes per completion, but bounded so a wedged
+/// inference host cannot stall the sniff loop indefinitely.
+const DEFAULT_AI_TIMEOUT_SECS: u64 = 300;
+const DEFAULT_AI_MAX_TOKENS: u32 = 2048;
+
+/// Default window for suppressing repeats of the same finding. Six hours,
+/// because standing misconfigurations (unauthenticated Redis, world-readable
+/// config) are re-detected on every pass and would otherwise alert all day.
+const DEFAULT_ALERT_DEDUP_WINDOW_SECS: u64 = 6 * 60 * 60;
+
 /// AI provider selection
 #[derive(Debug, Clone, PartialEq)]
 pub enum AiProvider {
@@ -44,6 +55,8 @@ pub struct SniffConfig {
     pub package_inventory_paths: Vec<String>,
     /// Poll interval in seconds
     pub interval_secs: u64,
+    /// How long the same finding stays suppressed before alerting again
+    pub alert_dedup_window_secs: u64,
     /// AI provider to use for summarization
     pub ai_provider: AiProvider,
     /// AI API URL (for OpenAI-compatible providers)
@@ -52,6 +65,10 @@ pub struct SniffConfig {
     pub ai_api_key: Option<String>,
     /// AI model name
     pub ai_model: String,
+    /// Request timeout in seconds for AI API calls (0 disables the timeout)
+    pub ai_timeout_secs: u64,
+    /// Max tokens for AI API response (0 lets the provider decide)
+    pub ai_max_tokens: u32,
     /// Database URL
     pub database_url: String,
     /// Slack webhook URL for alert notifications
@@ -68,6 +85,10 @@ pub struct SniffConfig {
     pub smtp_password: Option<String>,
     /// Email recipients for alert notifications
     pub email_recipients: Vec<String>,
+    /// Container names to skip during posture checks (trusted services)
+    pub trusted_containers: Vec<String>,
+    /// Enable AI tool-use (function calling) during analysis
+    pub ai_tools_enabled: bool,
 }
 
 /// Arguments for building a SniffConfig
@@ -183,6 +204,10 @@ impl SniffConfig {
             config_assessment_paths,
             package_inventory_paths,
             interval_secs,
+            alert_dedup_window_secs: env::var("STACKDOG_ALERT_DEDUP_WINDOW_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(DEFAULT_ALERT_DEDUP_WINDOW_SECS),
             ai_provider: ai_provider_str.parse().unwrap(),
             ai_api_url: args
                 .ai_api_url
@@ -195,6 +220,14 @@ impl SniffConfig {
                 .map(|s| s.to_string())
                 .or_else(|| env::var("STACKDOG_AI_MODEL").ok())
                 .unwrap_or_else(|| "llama3".into()),
+            ai_timeout_secs: env::var("STACKDOG_AI_TIMEOUT_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(DEFAULT_AI_TIMEOUT_SECS),
+            ai_max_tokens: env::var("STACKDOG_AI_MAX_TOKENS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(DEFAULT_AI_MAX_TOKENS),
             database_url: env::var("DATABASE_URL").unwrap_or_else(|_| "./stackdog.db".into()),
             slack_webhook: args
                 .slack_webhook
@@ -233,6 +266,20 @@ impl SniffConfig {
                         .collect()
                 })
                 .unwrap_or_default(),
+            trusted_containers: env::var("STACKDOG_TRUSTED_CONTAINERS")
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
+            ai_tools_enabled: env::var("STACKDOG_AI_TOOLS_ENABLED")
+                .ok()
+                .and_then(|v| match v.trim().to_ascii_lowercase().as_str() {
+                    "1" | "true" | "yes" | "on" => Some(true),
+                    "0" | "false" | "no" | "off" => Some(false),
+                    _ => None,
+                })
+                .unwrap_or(true),
         }
     }
 }
@@ -254,6 +301,8 @@ mod tests {
         env::remove_var("STACKDOG_AI_API_URL");
         env::remove_var("STACKDOG_AI_API_KEY");
         env::remove_var("STACKDOG_AI_MODEL");
+        env::remove_var("STACKDOG_AI_TIMEOUT_SECS");
+        env::remove_var("STACKDOG_AI_MAX_TOKENS");
         env::remove_var("STACKDOG_SNIFF_OUTPUT_DIR");
         env::remove_var("STACKDOG_SNIFF_INTERVAL");
         env::remove_var("STACKDOG_SLACK_WEBHOOK_URL");
@@ -263,6 +312,49 @@ mod tests {
         env::remove_var("STACKDOG_SMTP_USER");
         env::remove_var("STACKDOG_SMTP_PASSWORD");
         env::remove_var("STACKDOG_EMAIL_RECIPIENTS");
+        env::remove_var("STACKDOG_TRUSTED_CONTAINERS");
+        env::remove_var("STACKDOG_ALERT_DEDUP_WINDOW_SECS");
+    }
+
+    fn default_args() -> SniffArgs<'static> {
+        SniffArgs {
+            once: false,
+            consume: false,
+            output: "./stackdog-logs/",
+            sources: None,
+            interval: 30,
+            ai_provider: None,
+            ai_model: None,
+            ai_api_url: None,
+            slack_webhook: None,
+            webhook_url: None,
+            smtp_host: None,
+            smtp_port: None,
+            smtp_user: None,
+            smtp_password: None,
+            email_recipients: None,
+        }
+    }
+
+    #[test]
+    fn test_alert_dedup_window_defaults_to_six_hours() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        clear_sniff_env();
+
+        let config = SniffConfig::from_env_and_args(default_args());
+        assert_eq!(config.alert_dedup_window_secs, 21_600);
+    }
+
+    #[test]
+    fn test_alert_dedup_window_read_from_env() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        clear_sniff_env();
+        env::set_var("STACKDOG_ALERT_DEDUP_WINDOW_SECS", "900");
+
+        let config = SniffConfig::from_env_and_args(default_args());
+        assert_eq!(config.alert_dedup_window_secs, 900);
+
+        clear_sniff_env();
     }
 
     #[test]

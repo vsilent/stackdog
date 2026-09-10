@@ -4,8 +4,9 @@
 //! that can run built-in detectors over log entries and emit structured
 //! anomalies that flow through the existing sniff/reporting pipeline.
 
-mod audits;
+pub mod audits;
 mod integrity;
+mod ml;
 
 use std::collections::HashSet;
 
@@ -16,6 +17,7 @@ pub use self::audits::ContainerPosture;
 
 use self::audits::{ConfigAssessmentMonitor, DockerPostureMonitor, PackageInventoryMonitor};
 use self::integrity::FileIntegrityMonitor;
+use self::ml::MlBehavioralDetector;
 use crate::database::connection::DbPool;
 use crate::sniff::analyzer::{AnomalySeverity, LogAnomaly};
 use crate::sniff::reader::LogEntry;
@@ -72,6 +74,7 @@ impl DetectorFinding {
             detector_id: Some(self.detector_id.clone()),
             detector_family: Some(self.family.to_string()),
             confidence: Some(self.confidence),
+            suggested_action: None,
         }
     }
 }
@@ -121,6 +124,8 @@ impl DetectorRegistry {
         self.register(SsrfMetadataDetector);
         self.register(ExfiltrationChainDetector);
         self.register(SecretLeakageDetector);
+        self.register(WebArchiveProbeDetector);
+        self.register(MlBehavioralDetector::new());
     }
 
     pub fn detect_log_anomalies(&self, entries: &[LogEntry]) -> Vec<LogAnomaly> {
@@ -203,6 +208,7 @@ struct SensitiveFileAccessDetector;
 struct SsrfMetadataDetector;
 struct ExfiltrationChainDetector;
 struct SecretLeakageDetector;
+struct WebArchiveProbeDetector;
 
 impl LogDetector for SqlInjectionProbeDetector {
     fn id(&self) -> &'static str {
@@ -635,6 +641,42 @@ impl LogDetector for SecretLeakageDetector {
             ),
             severity: threshold_severity(matches.len(), 1, 2),
             confidence: 92,
+            sample_line: matches[0].line.clone(),
+        }]
+    }
+}
+
+impl LogDetector for WebArchiveProbeDetector {
+    fn id(&self) -> &'static str {
+        "web.archive-probe"
+    }
+
+    fn family(&self) -> DetectorFamily {
+        DetectorFamily::Web
+    }
+
+    fn detect(&self, entries: &[LogEntry]) -> Vec<DetectorFinding> {
+        let matches = matching_entries(
+            entries,
+            &[
+                ".zip", ".tar.gz", ".tgz", ".sql", ".7z", ".rar", ".tar.bz2", ".tar.xz", ".dump",
+                ".bak",
+            ],
+        );
+
+        if matches.len() < 3 {
+            return Vec::new();
+        }
+
+        vec![DetectorFinding {
+            detector_id: self.id().to_string(),
+            family: self.family(),
+            description: format!(
+                "Suspicious archive/backup file probing detected in {} HTTP requests",
+                matches.len()
+            ),
+            severity: threshold_severity(matches.len(), 3, 8),
+            confidence: 82,
             sample_line: matches[0].line.clone(),
         }]
     }
