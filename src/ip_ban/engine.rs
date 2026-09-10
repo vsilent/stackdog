@@ -41,6 +41,20 @@ impl IpBanEngine {
     }
 
     pub async fn record_offense(&self, offense: OffenseInput) -> Result<bool> {
+        // Checked before the offense is even recorded: banning a load balancer
+        // or health checker takes the service down, so protected addresses must
+        // not accumulate offenses that a later config change could act on.
+        if let Ok(parsed) = offense.ip_address.parse::<std::net::Ipv4Addr>() {
+            if self.config.is_allowlisted(&parsed) {
+                log::info!(
+                    "Skipping offense for allowlisted IP {} ({})",
+                    offense.ip_address,
+                    offense.reason
+                );
+                return Ok(false);
+            }
+        }
+
         if active_block_for_ip(&self.pool, &offense.ip_address)?.is_some() {
             return Ok(false);
         }
@@ -274,6 +288,7 @@ mod tests {
     use crate::database::repositories::offenses::find_recent_offenses;
     use crate::database::repositories::offenses::OffenseStatus;
     use crate::database::{create_pool, init_database, list_alerts, AlertFilter};
+    use crate::ip_ban::config::parse_cidr_list;
     use chrono::Utc;
     #[cfg(target_os = "linux")]
     use std::process::Command;
@@ -310,6 +325,7 @@ mod tests {
                 ban_time_secs: 60,
                 unban_check_interval_secs: 60,
                 trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
             },
         );
 
@@ -355,6 +371,49 @@ mod tests {
     }
 
     #[actix_rt::test]
+    async fn test_allowlisted_ip_is_never_recorded_or_banned() {
+        let pool = create_pool(":memory:").unwrap();
+        init_database(&pool).unwrap();
+        let engine = IpBanEngine::new(
+            pool.clone(),
+            IpBanConfig {
+                enabled: true,
+                max_retries: 1,
+                find_time_secs: 300,
+                ban_time_secs: 1800,
+                unban_check_interval_secs: 60,
+                trusted_proxy_ranges: vec![],
+                allowlist_ranges: parse_cidr_list("167.233.9.19,10.0.0.0/8"),
+            },
+        );
+
+        for ip in ["167.233.9.19", "10.1.2.3"] {
+            let blocked = engine
+                .record_offense(OffenseInput {
+                    ip_address: ip.into(),
+                    source_type: "sniff".into(),
+                    reason: "Repeated ssh login failure".into(),
+                    severity: AlertSeverity::Critical,
+                    container_id: None,
+                    source_path: Some("/var/log/auth.log".into()),
+                    sample_line: Some(format!("Failed password from {ip}")),
+                })
+                .await
+                .unwrap();
+
+            assert!(!blocked, "{ip} must not be banned");
+            assert!(active_block_for_ip(&pool, ip).unwrap().is_none());
+
+            // No offense row either: a later config change must not be able to
+            // act on history collected while the address was protected.
+            let offenses =
+                find_recent_offenses(&pool, ip, "sniff", Utc::now() - Duration::minutes(5))
+                    .unwrap();
+            assert!(offenses.is_empty(), "{ip} must not accumulate offenses");
+        }
+    }
+
+    #[actix_rt::test]
     async fn test_unban_expired_alerts_once_per_address() {
         let pool = create_pool(":memory:").unwrap();
         init_database(&pool).unwrap();
@@ -367,6 +426,7 @@ mod tests {
                 ban_time_secs: 0,
                 unban_check_interval_secs: 60,
                 trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
             },
         );
 
@@ -439,6 +499,7 @@ mod tests {
                 ban_time_secs: 0,
                 unban_check_interval_secs: 60,
                 trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
             },
         );
 

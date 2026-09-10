@@ -1011,6 +1011,7 @@ mod tests {
                 ban_time_secs: 60,
                 unban_check_interval_secs: 60,
                 trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
             },
         );
         let source = LogSource::new(
@@ -1151,6 +1152,7 @@ mod tests {
                 ban_time_secs: 60,
                 unban_check_interval_secs: 60,
                 trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
             },
         );
         let summary = make_summary(
@@ -1197,6 +1199,7 @@ mod tests {
                 ban_time_secs: 60,
                 unban_check_interval_secs: 60,
                 trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
             },
         );
         let summary = make_summary(
@@ -1267,6 +1270,7 @@ mod tests {
                 ban_time_secs: 60,
                 unban_check_interval_secs: 60,
                 trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
             },
         );
         let summary = make_detector_summary(
@@ -1304,6 +1308,7 @@ mod tests {
                 ban_time_secs: 60,
                 unban_check_interval_secs: 60,
                 trusted_proxy_ranges: vec![],
+                allowlist_ranges: vec![],
             },
         );
         let summary = make_summary(
