@@ -2,8 +2,8 @@ use crate::alerting::notifications::{dispatch_stored_alert, env_flag_enabled, No
 use crate::alerting::{AlertSeverity, AlertType};
 use crate::database::models::{Alert, AlertMetadata};
 use crate::database::repositories::offenses::{
-    active_block_for_ip, expired_blocks, find_recent_offenses, insert_offense, mark_blocked,
-    mark_released, NewIpOffense, OffenseMetadata,
+    active_block_for_ip, expired_blocks, mark_blocked, mark_released, record_offense_occurrence,
+    NewIpOffense, OffenseMetadata,
 };
 use crate::database::{create_alert, DbPool};
 use crate::ip_ban::config::IpBanConfig;
@@ -60,7 +60,7 @@ impl IpBanEngine {
         }
 
         let now = Utc::now();
-        insert_offense(
+        let offense_count = record_offense_occurrence(
             &self.pool,
             &NewIpOffense {
                 id: Uuid::new_v4().to_string(),
@@ -74,16 +74,10 @@ impl IpBanEngine {
                     sample_line: offense.sample_line.clone(),
                 }),
             },
-        )?;
-
-        let recent = find_recent_offenses(
-            &self.pool,
-            &offense.ip_address,
-            &offense.source_type,
             now - Duration::seconds(self.config.find_time_secs as i64),
         )?;
 
-        if recent.len() as u32 >= self.config.max_retries {
+        if offense_count >= self.config.max_retries {
             self.block_ip(&offense, now).await?;
             return Ok(true);
         }
@@ -430,7 +424,7 @@ mod tests {
             },
         );
 
-        // Each detection inserts its own row, and mark_blocked flips them all.
+        // Detections accumulate on a single row via offense_count.
         let mut blocked = Ok(false);
         for _ in 0..3 {
             blocked = engine
@@ -461,9 +455,10 @@ mod tests {
             Utc::now() - Duration::minutes(5),
         )
         .unwrap();
-        assert_eq!(offenses.len(), 3, "expected one row per detection");
+        assert_eq!(offenses.len(), 1, "expected one row per (ip, source_type)");
+        assert_eq!(offenses[0].offense_count, 3);
 
-        // Three expired rows, but one address: one release, one alert.
+        // One address, one release, one alert.
         let released = engine.unban_expired().await.unwrap();
         assert_eq!(released, 1);
 

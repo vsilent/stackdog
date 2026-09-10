@@ -133,9 +133,11 @@ mod tests {
     use chrono::Utc;
 
     fn insert_blocked_offense(pool: &DbPool, ip: &str) {
-        use crate::database::repositories::offenses::{insert_offense, mark_blocked, NewIpOffense};
+        use crate::database::repositories::offenses::{
+            mark_blocked, record_offense_occurrence, NewIpOffense,
+        };
 
-        insert_offense(
+        record_offense_occurrence(
             pool,
             &NewIpOffense {
                 id: format!("offense-{ip}"),
@@ -146,6 +148,7 @@ mod tests {
                 reason: "repeated offenses".into(),
                 metadata: None,
             },
+            Utc::now() - chrono::Duration::minutes(5),
         )
         .unwrap();
         mark_blocked(

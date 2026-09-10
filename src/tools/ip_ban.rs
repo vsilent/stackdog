@@ -5,7 +5,8 @@ use serde::Deserialize;
 
 use crate::database::connection::DbPool;
 use crate::database::repositories::offenses::{
-    active_block_for_ip, find_recent_offenses, insert_offense, mark_blocked, NewIpOffense,
+    active_block_for_ip, find_recent_offenses, mark_blocked, record_offense_occurrence,
+    NewIpOffense,
 };
 use crate::ip_ban::config::IpBanConfig;
 
@@ -108,7 +109,7 @@ pub fn execute_ban_ip(pool: &DbPool, config: &IpBanConfig, args: &str) -> ToolRe
     let blocked_until = now + Duration::seconds(duration as i64);
 
     // Record the offense
-    if let Err(e) = insert_offense(
+    if let Err(e) = record_offense_occurrence(
         pool,
         &NewIpOffense {
             id: uuid::Uuid::new_v4().to_string(),
@@ -119,6 +120,7 @@ pub fn execute_ban_ip(pool: &DbPool, config: &IpBanConfig, args: &str) -> ToolRe
             reason: args.reason.clone(),
             metadata: None,
         },
+        now - Duration::seconds(config.find_time_secs as i64),
     ) {
         return ToolResult::error("ban_ip", &format!("Failed to record offense: {}", e));
     }

@@ -1045,7 +1045,9 @@ mod tests {
             Utc::now() - chrono::Duration::minutes(5),
         )
         .unwrap();
-        assert_eq!(offenses.len(), 5);
+        // One row per (ip, source_type), with the tally in offense_count.
+        assert_eq!(offenses.len(), 1);
+        assert_eq!(offenses[0].offense_count, 5);
         assert!(offenses.iter().all(|offense| {
             offense
                 .metadata
